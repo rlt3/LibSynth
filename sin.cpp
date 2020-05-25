@@ -36,20 +36,12 @@ generate_sine (int16_t *samples,
 {
     static const double max_phase = 2. * M_PI;
     const size_t maxval = (1 << (format_width - 1)) - 1;
-    const int bps = format_width / 8;  /* bytes per sample */
-
-    int8_t *buff = (int8_t*) samples;
 
     double step = max_phase * freq / (double)rate;
     double phase = *currphase;
 
-    int val, i;
     while (count-- > 0) {
-        val = sin(phase) * maxval;
-
-        for (i = 0; i < bps; i++)
-            *(buff + i) = (val >> i * 8) & 0xff;
-        buff += 2;
+        *(samples++) = static_cast<int16_t>(sin(phase) * maxval);
 
         phase += step;
         if (phase >= max_phase)
