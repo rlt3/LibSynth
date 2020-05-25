@@ -241,7 +241,8 @@ close_pcm (snd_pcm_t *handle, short *buff)
 {
 	snd_pcm_drain(handle);
 	snd_pcm_close(handle);
-	free(buff);
+    if (buff)
+        free(buff);
 }
 
 int
@@ -253,7 +254,7 @@ main (int argc, char **argv)
 	snd_pcm_t *pcm_handle;
 	snd_pcm_uframes_t frames;
     int buff_size;
-    short *buff;
+    short *buff = NULL;
     int r;
 
     snd_seq_t *seq_handle;
@@ -261,30 +262,49 @@ main (int argc, char **argv)
 
     open_pcm(channels, rate, &pcm_handle, &frames, &buff_size);
     printf("frames: %ld\n", frames);
-	buff = (short *) malloc(buff_size);
 
-    for (int i = 0; i < buff_size / 2; i++) {
-        //buff[i] = 128 + floor(128.0 * sin(i / 512.0));
-        buff[i] = 12000 * floor(sin(i / 512.0));
+    int16_t buffer[44100];
+    float frequency = 440.0f;
+    float sampling_ratio = 44100.0f;
+    float amplitude = 0.5f;
+    float t;
+    for (int i = 0; i < 44100; i++) {
+        float theta = ((float)i / sampling_ratio) * M_PI;
+        buffer[i] = (int16_t)(sin(theta * frequency) * 32767.0f * amplitude);
     }
 
-    FILE *f = fopen("tmp.bin", "rb");
-    while (1) {
-        /* if failed to read bytes, set file to beginning */
-        if (fread(buff, 4096, 1, f) <= 0) {
-            fseek(f, 4096, SEEK_SET);
-            continue;
-        }
-        r = snd_pcm_writei(pcm_handle, buff, frames);
-        if (r == -EPIPE) {
-            printf("XRUN.\n");
-            snd_pcm_prepare(pcm_handle);
-        } else if (r < 0) {
-            printf("ERROR. Can't write to PCM device. %s\n", snd_strerror(r));
-        }
-        usleep(100);
+    r = snd_pcm_writei(pcm_handle, buffer, 1);
+    if (r == -EPIPE) {
+        printf("XRUN.\n");
+        snd_pcm_prepare(pcm_handle);
     }
-    fclose(f);
+
+    sleep(1);
+
+	//buff = (short *) malloc(buff_size);
+
+    //for (int i = 0; i < buff_size / 2; i++) {
+    //    //buff[i] = 128 + floor(128.0 * sin(i / 512.0));
+    //    buff[i] = 12000 * floor(sin(i / 512.0));
+    //}
+
+    //FILE *f = fopen("tmp.bin", "rb");
+    //while (1) {
+    //    /* if failed to read bytes, set file to beginning */
+    //    if (fread(buff, 4096, 1, f) <= 0) {
+    //        fseek(f, 4096, SEEK_SET);
+    //        continue;
+    //    }
+    //    r = snd_pcm_writei(pcm_handle, buff, frames);
+    //    if (r == -EPIPE) {
+    //        printf("XRUN.\n");
+    //        snd_pcm_prepare(pcm_handle);
+    //    } else if (r < 0) {
+    //        printf("ERROR. Can't write to PCM device. %s\n", snd_strerror(r));
+    //    }
+    //    usleep(100);
+    //}
+    //fclose(f);
 
     //FILE *f = fopen("tmp.bin", "wb");
     //midi_open(&seq_handle, &in_port);
