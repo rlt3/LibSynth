@@ -26,28 +26,22 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     return err;
 }
 
-void
-generate_sine (int16_t *samples,
-               size_t format_width,
-               unsigned int rate,
-               unsigned int freq,
-               int count, 
-               double *currphase)
+void add_sine_wave (int16_t* buffer,
+                    int buffer_length,
+                    float freq,
+                    float rate,
+                    float amp,
+                    float *currphase)
 {
     static const double max_phase = 2. * M_PI;
-    const size_t maxval = (1 << (format_width - 1)) - 1;
-
-    double step = max_phase * freq / (double)rate;
-    double phase = *currphase;
-
-    while (count-- > 0) {
-        *(samples++) = static_cast<int16_t>(sin(phase) * maxval);
-
+    float step = max_phase * freq / (float) rate;
+    float phase = *currphase;
+    for (int i = 0; i < buffer_length; i++) {
+        buffer[i] += static_cast<int16_t>(sin(phase) * 32767.0f * amp);
         phase += step;
         if (phase >= max_phase)
             phase -= max_phase;
     }
-
     *currphase = phase;
 }
 
@@ -202,30 +196,34 @@ main (void)
         return err;
     }
 
-    size_t num_samples = (period_size * channels * format_width) / 8;
-    samples = (int16_t*) malloc(num_samples);
-    printf("Num Samples: %lu\n", num_samples);
+    size_t num_bytes = (period_size * channels * format_width) / 8;
+    samples = (int16_t*) malloc(num_bytes);
+    printf("Num Channels: %u\n", channels);
+    printf("Num Samples: %lu\n", num_bytes / sizeof(int16_t));
 
-    double phase = 0;
     signed short *ptr;
-    int cptr;
+    int count, frames;
+    float phase = 0;
     while (1) {
-        generate_sine(samples, format_width, rate, freq, period_size, &phase);
+        memset(samples, 0, num_bytes);
+		add_sine_wave(samples, period_size, 440.0f,  rate, 0.30f, &phase);
+		add_sine_wave(samples, period_size, 554.37f, rate, 0.30f, &phase);
+		add_sine_wave(samples, period_size, 659.26f, rate, 0.05f, &phase);
         ptr = samples;
-        cptr = period_size;
-        while (cptr > 0) {
-            err = snd_pcm_writei(handle, ptr, cptr);
-            if (err == -EAGAIN)
+        count = period_size;
+        while (count > 0) {
+            frames = snd_pcm_writei(handle, ptr, count);
+            if (frames == -EAGAIN)
                 continue;
-            if (err < 0) {
-                if (xrun_recovery(handle, err) < 0) {
-                    printf("Write error: %s\n", snd_strerror(err));
+            if (frames < 0) {
+                if (xrun_recovery(handle, frames) < 0) {
+                    printf("Write error: %s\n", snd_strerror(frames));
                     exit(EXIT_FAILURE);
                 }
                 break;  /* skip one period */
             }
-            ptr += err * channels;
-            cptr -= err;
+            ptr += frames * channels;
+            count -= frames;
         }
     }
 
