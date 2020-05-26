@@ -4,22 +4,37 @@
 #include <cstring>
 #include "AudioDevice.hpp"
 
-void add_sine_wave (int16_t* buffer,
-                    int buffer_length,
-                    float freq,
-                    float rate,
-                    float amp,
-                    float *currphase)
+static inline int16_t
+clip (double v)
+{
+    int32_t m = static_cast<int32_t>(v);
+    if (m > INT16_MAX)
+        m = INT16_MAX;
+    else if (m < INT16_MIN)
+        m = INT16_MIN;
+    return static_cast<int16_t>(m);
+}
+
+void
+add_sine_wave (int16_t* buffer,
+               int buffer_length,
+               double rate,
+               double freq,
+               double amp,
+               double *currphase)
 {
     static const double max_phase = 2. * M_PI;
-    float step = max_phase * freq / (float) rate;
-    float phase = *currphase;
+    double step = max_phase * freq / rate;
+    double phase = *currphase;
+
     for (int i = 0; i < buffer_length; i++) {
-        buffer[i] += static_cast<int16_t>(sin(phase) * 32767.0f * amp);
+        buffer[i] += clip(sin(phase) * 32767.0f * amp);
+
         phase += step;
         if (phase >= max_phase)
             phase -= max_phase;
     }
+
     *currphase = phase;
 }
 
@@ -31,13 +46,14 @@ main ()
     int16_t* samples = PCM.getSamplesBuffer();
     size_t samples_bytes = PCM.getSamplesBytes();
     size_t num_samples = PCM.getNumSamples();
+    unsigned int rate = PCM.getRate();
 
-    float phase = 0;
+    double phase = 0;
     while (1) {
         memset(samples, 0, samples_bytes);
-		add_sine_wave(samples, num_samples, 440.0f,  44100.f, 0.50f, &phase);
-		//add_sine_wave(samples, num_samples, 554.37f, 44100.f, 0.30f, &phase);
-		//add_sine_wave(samples, num_samples, 659.26f, 44100.f, 0.05f, &phase);
+		add_sine_wave(samples, num_samples, rate, 440.0f, 0.50f, &phase);
+		//add_sine_wave(samples, num_samples, rate, 554.37f, 0.30f, &phase);
+		//add_sine_wave(samples, num_samples, rate, 659.26f, 0.05f, &phase);
         PCM.playSamples();
     }
 

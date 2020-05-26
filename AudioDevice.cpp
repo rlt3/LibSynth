@@ -168,6 +168,12 @@ AudioDevice::getSamplesBytes ()
     return this->samples_bytes;
 }
 
+unsigned int
+AudioDevice::getRate ()
+{
+    return rate;
+}
+
 /* Underrun and suspend recovery */
 static int xrun_recovery (snd_pcm_t *handle, int err)
 {

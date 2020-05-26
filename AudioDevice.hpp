@@ -12,6 +12,7 @@ public:
     int16_t* getSamplesBuffer ();
     size_t getNumSamples ();
     size_t getSamplesBytes ();
+    unsigned int getRate ();
 
     /* attempt to play the samples in the samples buffer */
     void playSamples ();
