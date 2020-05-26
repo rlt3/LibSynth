@@ -8,12 +8,26 @@ public:
     AudioDevice ();
     ~AudioDevice ();
 
-    /* get the samples buffer and its length */
-    int16_t* getSamplesBuffer ();
-    size_t getNumSamples ();
-    size_t getSamplesBytes ();
+    /* 
+     * Returns the number of samples per period, i.e. the number of samples to
+     * give to the buffer at any one time.
+     */
+    size_t getPeriodSize ();
+
+    /* get the sound rate in Hz, e.g. 44100 */
     unsigned int getRate ();
 
+    /* 
+     * Given a buffer of length divisible by the period size, convert each period
+     * size of the buffer into correct bit format, place it in the samples buffer
+     * and then play.
+     */
+    void play (double *buffer, size_t length);
+
+    /* Return the internal samples buffer */
+    int16_t* getSamplesBuffer ();
+    /* Return the length of the internal samples buffer in bytes */
+    size_t getSamplesBytes ();
     /* attempt to play the samples in the samples buffer */
     void playSamples ();
 
@@ -24,9 +38,9 @@ private:
     /* how many samples exist */
     size_t num_samples;
     /* */
-    long buffer_size;
+    size_t buffer_size;
     /* number of samples per play period */
-    long period_size;
+    size_t period_size;
 
     void initDevice ();
     void setupHardware ();
