@@ -39,15 +39,12 @@ midiOpen (snd_seq_t **handle, int *port)
 void
 midiProcess (snd_seq_t *handle, Oscillator &O)
 {
-    /* 
-     * try to consume `num_events' of input from the input buffer. This prevents
-     * overflows of the internal event queue of the sequencer.
-     */
-    const int num_events = 10;
+    bool set_pending = false;
+    int events_pending = 0;
     snd_seq_event_t *ev = NULL;
     int r;
 
-    for (int i = 0; i < num_events; i++) {
+    do {
         r = snd_seq_event_input(handle, &ev);
         if (r == -EAGAIN) {
             break;
@@ -55,6 +52,16 @@ midiProcess (snd_seq_t *handle, Oscillator &O)
         else if (r < 0) {
             fprintf(stderr, "midiRead: %s\n", snd_strerror(r));
             exit(1);
+        }
+        /*
+         * Warning: `snd_seq_event_input_pending` seems to only 'work' after
+         * having called `snd_seq_event_input'. Attempting to call it before
+         * and then 'loop-to' the number of pending events does not work for
+         * whatever reason.
+         */
+        if (!set_pending) {
+            set_pending = true;
+            events_pending = snd_seq_event_input_pending(handle, 0);
         }
 
         switch (ev->type) {
@@ -84,7 +91,9 @@ midiProcess (snd_seq_t *handle, Oscillator &O)
                                                        ev->data.note.velocity);
                 break;        
         }
-    }
+
+        events_pending--;
+    } while (events_pending > 0);
 }
 
 void
@@ -112,11 +121,6 @@ main ()
     int midi_port;
 
     midiOpen(&midi, &midi_port);
-
-    printf("event size: %lu\n", sizeof(snd_seq_event_t));
-    printf("input buffer size: %lu\n", snd_seq_get_input_buffer_size(midi));
-    snd_seq_set_input_buffer_size(midi, sizeof(snd_seq_event_t) * 5000);
-    printf("input buffer size: %lu\n", snd_seq_get_input_buffer_size(midi));
 
     while (1) {
         midiProcess(midi, oscillator);
