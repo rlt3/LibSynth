@@ -1,6 +1,6 @@
-#include "Oscillator.hpp"
-#include "definitions.hpp"
 #include <cmath>
+#include "Oscillator.hpp"
+#include "Definitions.hpp"
 
 Oscillator::Oscillator ()
     : _mode (OSCILLATOR_MODE_SAW)
@@ -43,9 +43,15 @@ Oscillator::setPitch (double pitch)
 }
 
 void
-Oscillator::toggleMute ()
+Oscillator::mute ()
 {
-    _muted = !_muted;
+    _muted = true;
+}
+
+void
+Oscillator::unmute ()
+{
+    _muted = false;
 }
 
 void
@@ -86,7 +92,7 @@ Oscillator::next ()
     double t = _phase / TWOPI;
 
     if (_muted)
-        goto increment;
+        return value;
     
     if (_mode == OSCILLATOR_MODE_SINE) {
         value = naiveWave();
@@ -106,7 +112,6 @@ Oscillator::next ()
         }
     }
     
-increment:
     _phase += _phaseIncrement;
     while (_phase >= TWOPI)
         _phase -= TWOPI;

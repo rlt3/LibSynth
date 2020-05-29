@@ -24,7 +24,8 @@ public:
     void setFreq  (double);
     void setRate  (double);
     void setPitch (double);
-    void toggleMute ();
+    void mute ();
+    void unmute ();
 
 protected:
     /* set the phase increment using the current values */
