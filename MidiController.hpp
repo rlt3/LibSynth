@@ -17,14 +17,12 @@ struct MidiEvent {
     int note;
     int velocity;
     double pitch;
-    unsigned long timestamp;
 
-    MidiEvent (MidiEventType t, int n, int v, double p, unsigned long s)
+    MidiEvent (MidiEventType t, int n, int v, double p)
         : type (t)
         , note (n)
         , velocity (v)
         , pitch (p)
-        , timestamp (s)
     { }
 
     MidiEvent (MidiEventType t)
@@ -32,7 +30,6 @@ struct MidiEvent {
         , note (0)
         , velocity (0)
         , pitch (0.0)
-        , timestamp (0)
     { }
 
     MidiEvent ()
@@ -40,7 +37,6 @@ struct MidiEvent {
         , note (0)
         , velocity (0)
         , pitch (0.0)
-        , timestamp (0)
     { }
 };
 
@@ -56,19 +52,13 @@ public:
     /* Process the next event to update the current state. */
     void process ();
 
-    /* 
-     * Sync the timestamps. Note: not used right now, but will be probably used
-     * to prevent overflow of unsigned long timestamp value in event thread.
-     */
-    void sync (unsigned long timestamp);
-
     /* Lock the queue and insert the event. */
     void input (MidiEvent event);
 
 protected:
-    /* 
-     * Lock the queue and pop the next event off the queue if the internal
-     * timestamp is greater than the next event. Else, return a 'blank' event.
+    /*
+     * Returns an Event from the queue if available. Otherwise, returns an
+     * event with type MIDI_EMPTY indicating queue is empty.
      */
     MidiEvent nextEvent ();
 
@@ -78,8 +68,6 @@ private:
     double _frequency;
     int _velocity;
     double _pitch;
-
-    unsigned long _timestamp;
 
     std::queue<MidiEvent> _queue;
     pthread_t _eventThread;

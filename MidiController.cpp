@@ -4,7 +4,7 @@
 #include "Definitions.hpp"
 
 static MidiEvent
-_midi_event_process (const unsigned long timestamp, snd_seq_event_t *ev)
+_midi_event_process (snd_seq_event_t *ev)
 {
     MidiEventType type = MIDI_UNHANDLED;
     int note = 0;
@@ -57,7 +57,7 @@ _midi_event_process (const unsigned long timestamp, snd_seq_event_t *ev)
         }
     }
 
-    return MidiEvent(type, note, velocity, pitch, timestamp);
+    return MidiEvent(type, note, velocity, pitch);
 }
 
 struct MidiThreadData {
@@ -75,7 +75,6 @@ _midi_event_thread (void *data)
     MidiController *controller = threadData->controller;
     delete threadData;
 
-    unsigned long timestamp = 0;
     bool set_pending;
     int events_pending;
     snd_seq_event_t *seq_event = NULL;
@@ -104,9 +103,8 @@ _midi_event_thread (void *data)
                events_pending = snd_seq_event_input_pending(sequencer, 0);
             }
 
-            controller->input(_midi_event_process(timestamp, seq_event));
+            controller->input(_midi_event_process(seq_event));
             events_pending--;
-            timestamp++;
         } while (events_pending > 0);
     }
 
@@ -118,7 +116,6 @@ MidiController::MidiController ()
     , _frequency (-1.0)
     , _velocity (0)
     , _pitch (0.0)
-    , _timestamp (0)
 {
     snd_seq_t *handle = NULL;
     int seq_port;
@@ -185,33 +182,30 @@ noteToFrequency (int note)
 void
 MidiController::process ()
 {
-    while (1) {
-        MidiEvent e = nextEvent();
-        if (e.type == MIDI_EMPTY)
+    MidiEvent e = nextEvent();
+    if (e.type == MIDI_EMPTY)
+        return;
+
+    switch (e.type) {
+        case MIDI_NOTEON:
+            if (e.type == MIDI_NOTEON && e.velocity) {
+                _frequency = noteToFrequency(e.note);
+                _velocity = e.velocity;
+            }
             break;
 
-        switch (e.type) {
-            case MIDI_NOTEON:
-                if (e.type == MIDI_NOTEON && e.velocity) {
-                    _frequency = noteToFrequency(e.note);
-                    _velocity = e.velocity;
-                }
-                break;
+        case MIDI_NOTEOFF:
+            _frequency = -1.0;
+            _velocity = 0;
+            break;
 
-            case MIDI_NOTEOFF:
-                _frequency = -1.0;
-                _velocity = 0;
-                break;
+        case MIDI_PITCHBEND:
+            _pitch = e.pitch;
+            break;
 
-            case MIDI_PITCHBEND:
-                _pitch = e.pitch;
-                break;
-
-            default:
-                break;
-        }
+        default:
+            break;
     }
-    _timestamp++;
 }
 
 void
@@ -222,16 +216,9 @@ MidiController::input (MidiEvent event)
     pthread_mutex_unlock(&_eventQueueLock);
 }
 
-void
-MidiController::sync (unsigned long timestamp)
-{
-    _timestamp = timestamp;
-}
-
 /*
  * Returns an Event from the queue if available. Otherwise, returns an event
- * with type MIDI_EMPTY indicating queue is empty or next event is ahead of
- * our current timestamp.
+ * with type MIDI_EMPTY indicating queue is empty.
  */
 MidiEvent
 MidiController::nextEvent ()
@@ -240,10 +227,8 @@ MidiController::nextEvent ()
     pthread_mutex_lock(&_eventQueueLock);
     if (_queue.empty())
         goto unlock;
-    if (_timestamp >= _queue.front().timestamp) {
-        event = _queue.front();
-        _queue.pop();
-    }
+    event = _queue.front();
+    _queue.pop();
 unlock:
     pthread_mutex_unlock(&_eventQueueLock);
     return event;
