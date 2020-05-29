@@ -16,10 +16,6 @@ static const size_t format_width = snd_pcm_format_physical_width(format);
 static const unsigned int rate = 44100;
 /* count of channels */
 static const unsigned int channels = 1;
-/* ring buffer length in us */
-static unsigned int buffer_time = 500000;
-/* period time in us */
-static unsigned int period_time = 100000;
 
 void
 chk_err (int err, const char* format, ...)
@@ -81,16 +77,18 @@ void AudioDevice::setupHardware ()
         exit(1);
     }
 
-    /* set the buffer time */
-    err = snd_pcm_hw_params_set_buffer_time_near(handle, hwparams, &buffer_time, NULL);
-    chk_err(err, "Unable to set buffer time %u for playback: %s\n", buffer_time, snd_strerror(err));
+    /* Set the period and buffer size fairly low to keep latency low */
+    this->buffer_size = 1024;
+    this->period_size = 64;
+
+    err = snd_pcm_hw_params_set_buffer_size_near(handle, hwparams, &buffer_size);
+    chk_err(err, "Unable to set buffer size for playback: %s\n", snd_strerror(err));
     err = snd_pcm_hw_params_get_buffer_size(hwparams, &val);
     chk_err(err, "Unable to get buffer size for playback: %s\n", snd_strerror(err));
     buffer_size = val;
 
-    /* set the period time */
-    err = snd_pcm_hw_params_set_period_time_near(handle, hwparams, &period_time, NULL);
-    chk_err(err, "Unable to set period time %u for playback: %s\n", period_time, snd_strerror(err));
+    err = snd_pcm_hw_params_set_period_size_near(handle, hwparams, &period_size, NULL);
+    chk_err(err, "Unable to set period size for playback: %s\n", snd_strerror(err));
     err = snd_pcm_hw_params_get_period_size(hwparams, &val, NULL);
     chk_err(err, "Unable to get period size for playback: %s\n", snd_strerror(err));
     period_size = val;
@@ -198,17 +196,6 @@ static int xrun_recovery (snd_pcm_t *handle, int err)
     return err;
 }
 
-static inline int16_t
-clip (double v)
-{
-    int32_t m = static_cast<int32_t>(v);
-    if (m > INT16_MAX)
-        m = INT16_MAX;
-    else if (m < INT16_MIN)
-        m = INT16_MIN;
-    return static_cast<int16_t>(m);
-}
-
 /* 
  * Given a buffer of length divisible by the period size, convert each period
  * size of the buffer into correct bit format, place it in the samples buffer
@@ -220,7 +207,7 @@ AudioDevice::play (double *buffer, size_t length)
     assert(length % this->period_size == 0);
     for (size_t index = 0; index < length; index += period_size) {
         for (size_t i = 0; i < this->num_samples; i++) {
-            this->samples[i] = clip(buffer[index + i]);
+            this->samples[i] = buffer[index + i];
         }
         this->playSamples();
     }

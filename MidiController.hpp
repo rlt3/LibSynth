@@ -2,7 +2,6 @@
 #define MIDICONTROLLER_HPP
 
 #include <queue>
-#include <utility>
 #include <pthread.h>
 
 typedef enum _MidiEventType {
@@ -10,6 +9,7 @@ typedef enum _MidiEventType {
     MIDI_NOTEON,
     MIDI_NOTEOFF,
     MIDI_UNHANDLED,
+    MIDI_EMPTY,
 } MidiEventType;
 
 struct MidiEvent {
@@ -17,12 +17,22 @@ struct MidiEvent {
     int note;
     int velocity;
     double pitch;
+    unsigned long timestamp;
 
-    MidiEvent (MidiEventType t, int n, int v, double p)
+    MidiEvent (MidiEventType t, int n, int v, double p, unsigned long s)
         : type (t)
         , note (n)
         , velocity (v)
         , pitch (p)
+        , timestamp (s)
+    { }
+
+    MidiEvent (MidiEventType t)
+        : type (t)
+        , note (0)
+        , velocity (0)
+        , pitch (0.0)
+        , timestamp (0)
     { }
 
     MidiEvent ()
@@ -30,6 +40,7 @@ struct MidiEvent {
         , note (0)
         , velocity (0)
         , pitch (0.0)
+        , timestamp (0)
     { }
 };
 
@@ -46,10 +57,10 @@ public:
     void process ();
 
     /* 
-     * Sync the remaining events in the queue by subtracting the current number
-     * of frames processed from them.
+     * Sync the timestamps. Note: not used right now, but will be probably used
+     * to prevent overflow of unsigned long timestamp value in event thread.
      */
-    void sync (int framesProcessed);
+    void sync (unsigned long timestamp);
 
     /* Lock the queue and insert the event. */
     void input (MidiEvent event);
@@ -65,12 +76,12 @@ private:
     void *_sequencer; 
 
     double _frequency;
-    double _velocity;
+    int _velocity;
     double _pitch;
 
     unsigned long _timestamp;
 
-    std::queue<std::pair<int, MidiEvent>> queue;
+    std::queue<MidiEvent> _queue;
     pthread_t _eventThread;
     pthread_mutex_t _eventQueueLock;
     bool _eventThreadWorking;
