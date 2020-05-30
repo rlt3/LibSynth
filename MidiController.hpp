@@ -9,6 +9,7 @@ typedef enum _MidiEventType {
     MIDI_PITCHBEND,
     MIDI_NOTEON,
     MIDI_NOTEOFF,
+    MIDI_CONTROL,
     MIDI_UNHANDLED,
     MIDI_EMPTY,
 } MidiEventType;
@@ -16,12 +17,14 @@ typedef enum _MidiEventType {
 struct MidiEvent {
     MidiEventType type;
     int note;
+    double control;
     double velocity;
     double pitch;
 
-    MidiEvent (MidiEventType t, int n, double v, double p)
+    MidiEvent (MidiEventType t, int n, double c, double v, double p)
         : type (t)
         , note (n)
+        , control (c)
         , velocity (v)
         , pitch (p)
     { }
@@ -29,14 +32,16 @@ struct MidiEvent {
     MidiEvent (MidiEventType t)
         : type (t)
         , note (0)
-        , velocity (0)
+        , control (0.0)
+        , velocity (0.0)
         , pitch (0.0)
     { }
 
     MidiEvent ()
         : type (MIDI_UNHANDLED)
         , note (0)
-        , velocity (0)
+        , control (0.0)
+        , velocity (0.0)
         , pitch (0.0)
     { }
 };

@@ -187,7 +187,7 @@ unsigned long Envelope::rate = 44100;
 class PolyNote {
 public:
     /* PolyNotes start in the active state */
-    PolyNote (double frequency, double velocity)
+    PolyNote (const double frequency, const double velocity)
         : _isActive (false)
         , _velocity (0.0)
         , _env (Envelope(0.01, 0.5, 0.1, 1.0))
@@ -198,7 +198,7 @@ public:
     }
 
     /* Resets the envelope and note if already active */
-    void noteOn (double velocity)
+    void noteOn (const double velocity)
     {
         _isActive = true;
         _velocity = velocity;
@@ -215,11 +215,12 @@ public:
         return _isActive;
     }
 
-    double next ()
+    double next (double LFOSample)
     {
         assert(_isActive);
         _isActive = _env.isActive();
-        return  _oscillator.next() * _env.next() * _velocity;
+        return  (_oscillator.next() * _env.next() * _velocity) + LFOSample;
+        //return  (_oscillator.next() * _env.next() * _velocity) * LFOSample;
     }
 
 private:
@@ -234,7 +235,7 @@ public:
     Polyphonic ()
     { }
 
-    void noteOn (int note, double velocity)
+    void noteOn (const int note, const double velocity)
     {
         auto it = _notes.find(note);
         if (it != _notes.end()) {
@@ -247,15 +248,16 @@ public:
         }
     }
 
-    void noteOff (int note)
+    void noteOff (const int note)
     {
         auto it = _notes.find(note);
+        /* MIDI keyboard sometimes sends errant 'noteOff' events */
         if (it == _notes.end())
             return;
         it->second.noteOff();
     }
 
-    bool noteActive (int note)
+    bool noteActive (const int note)
     {
         auto it = _notes.find(note);
         if (it == _notes.end())
@@ -263,7 +265,7 @@ public:
         return it->second.isActive();
     }
 
-    double next ()
+    double next (const double LFOSample)
     {
         double out = 0.0;
         /* This weird construction allows removing objects while iterating */
@@ -273,7 +275,7 @@ public:
                     printf("Removing note %2x\n", it->first);
                 it = _notes.erase(it);
             } else {
-                out += it->second.next();
+                out += it->second.next(LFOSample);
                 it++;
             }
         }
@@ -299,18 +301,23 @@ main (int argc, char **argv)
     //double sustain = atof(argv[3]);
     //double release = atof(argv[4]);
 
-    AudioDevice PCM;
+    AudioDevice audio;
 
-    size_t rate = PCM.getRate();
-    size_t period_size = PCM.getPeriodSize();
+    size_t rate = audio.getRate();
+    size_t period_size = audio.getPeriodSize();
     size_t samples_len = period_size;
     size_t samples_bytes = samples_len * sizeof(double);
     double *samples = (double*) malloc(samples_bytes);
 
+    Oscillator LFO;
+    LFO.setMode(OSCILLATOR_MODE_TRIANGLE);
+    LFO.useNaive(true);
+    LFO.setFreq(40.0);
+    double LFOFilter = 0.1;
+
     Oscillator::setRate(rate);
     Envelope::setRate(rate);
-    MidiController midi;
-    Polyphonic polyphonic;
+    MidiController midi; Polyphonic polyphonic;
 
     while (progRunning) {
         for (unsigned i = 0; i < samples_len; ++i) {
@@ -322,12 +329,22 @@ main (int argc, char **argv)
                 case MIDI_NOTEOFF:
                     polyphonic.noteOff(e.note);
                     break;
+                //case MIDI_PITCHBEND:
+                //    polyphonic.setPitch(e.pitch);
+                //    break;
+                case MIDI_CONTROL:
+                    if (e.note == 1) {
+                        LFOFilter = e.control;
+                        if (DEBUG)
+                            printf("LFOFilter = %lf\n", LFOFilter);
+                    }
+                    break;
                 default:
                     break;
             }
-            samples[i] = clip(polyphonic.next());
+            samples[i] = clip(polyphonic.next(LFO.next() * LFOFilter));
         }
-        PCM.play(samples, samples_len);
+        audio.play(samples, samples_len);
     }
 
     free(samples);

@@ -18,6 +18,7 @@ public:
     static unsigned long rate;
 
     Oscillator ();
+    Oscillator (bool);
 
     /* get the next sample from the oscillator */
     double next ();
@@ -27,6 +28,9 @@ public:
     void setPitch (double);
     void mute ();
     void unmute ();
+
+    /* use Naive waveforms when calling 'next' instead of polyBlep */
+    void useNaive (bool);
 
     /* Set the sample rate for all oscillators */
     static void setRate (unsigned long);
@@ -56,6 +60,8 @@ private:
     bool _muted;
     /* holds delay value from leak intregator */
     double _lastOut;
+    /* generate naive waves instead of PolyBlep waves */
+    bool _useNaive;
 };
 
 #endif

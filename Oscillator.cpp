@@ -12,6 +12,7 @@ Oscillator::Oscillator ()
     , _phaseIncrement (0.0)
     , _muted (false)
     , _lastOut (0.0)
+    , _useNaive (false)
 {
     setIncrement();
 }
@@ -46,6 +47,12 @@ void
 Oscillator::unmute ()
 {
     _muted = false;
+}
+
+void
+Oscillator::useNaive (bool useNaive)
+{
+    _useNaive = useNaive;
 }
 
 /* Set the sample rate for all oscillators */
@@ -94,6 +101,11 @@ Oscillator::next ()
 
     if (_muted)
         return value;
+
+    if (_useNaive) {
+        value = naiveWave();
+        goto increment;
+    }
     
     if (_mode == OSCILLATOR_MODE_SINE) {
         value = naiveWave();
@@ -113,6 +125,7 @@ Oscillator::next ()
         }
     }
     
+increment:
     _phase += _phaseIncrement;
     while (_phase >= TWOPI)
         _phase -= TWOPI;

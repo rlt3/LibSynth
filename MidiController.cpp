@@ -8,7 +8,8 @@ _midi_event_process (snd_seq_event_t *ev)
 {
     MidiEventType type = MIDI_UNHANDLED;
     int note = 0;
-    double velocity = 0;
+    double control = 0.0;
+    double velocity = 0.0;
     double pitch = 0.0;
 
     switch (ev->type) {
@@ -28,6 +29,9 @@ _midi_event_process (snd_seq_event_t *ev)
                printf("[%u] Control:  %2x val(%2x)\n", ev->time.tick,
                                                        ev->data.control.param,
                                                        ev->data.control.value);
+            type = MIDI_CONTROL;
+            note = ev->data.control.param;
+            control = (double) ev->data.control.value / 127.0;
             break;
         }
 
@@ -57,7 +61,7 @@ _midi_event_process (snd_seq_event_t *ev)
         }
     }
 
-    return MidiEvent(type, note, velocity, pitch);
+    return MidiEvent(type, note, control, velocity, pitch);
 }
 
 struct MidiThreadData {
