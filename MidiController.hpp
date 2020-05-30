@@ -1,6 +1,7 @@
 #ifndef MIDICONTROLLER_HPP
 #define MIDICONTROLLER_HPP
 
+#include <map>
 #include <queue>
 #include <pthread.h>
 
@@ -49,30 +50,37 @@ public:
     double velocity () const;
     double pitch () const;
 
+    int note () const;
+    bool noteOn (int note) const;
+
     /* Process the next event to update the current state. */
     void process ();
 
     /* Lock the queue and insert the event. */
     void input (MidiEvent event);
 
-protected:
     /*
      * Returns an Event from the queue if available. Otherwise, returns an
      * event with type MIDI_EMPTY indicating queue is empty.
      */
     MidiEvent nextEvent ();
 
+protected:
+
 private:
     void *_sequencer; 
 
     double _frequency;
-    int _velocity;
+    double _velocity;
     double _pitch;
+    int    _note;
 
     std::queue<MidiEvent> _queue;
     pthread_t _eventThread;
     pthread_mutex_t _eventQueueLock;
     bool _eventThreadWorking;
+
+    std::map<int, bool> _notes;
 };
 
 #endif

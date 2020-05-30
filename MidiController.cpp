@@ -114,7 +114,7 @@ _midi_event_thread (void *data)
 MidiController::MidiController ()
     : _sequencer (NULL)
     , _frequency (-1.0)
-    , _velocity (0)
+    , _velocity (0.0)
     , _pitch (0.0)
 {
     snd_seq_t *handle = NULL;
@@ -164,13 +164,28 @@ MidiController::frequency () const
 double
 MidiController::velocity () const
 {
-    return (double)_velocity / 127.0;
+    return _velocity;
 }
 
 double
 MidiController::pitch () const
 {
     return _pitch;
+}
+
+int
+MidiController::note () const
+{
+    return _note;
+}
+
+bool
+MidiController::noteOn (int note) const
+{
+    auto iter = _notes.find(note);
+    if (iter == _notes.end())
+        return false;
+    return iter->second;
 }
 
 static inline double
@@ -182,6 +197,7 @@ noteToFrequency (int note)
 void
 MidiController::process ()
 {
+    _note = -1;
     MidiEvent e = nextEvent();
     if (e.type == MIDI_EMPTY)
         return;
@@ -189,14 +205,17 @@ MidiController::process ()
     switch (e.type) {
         case MIDI_NOTEON:
             if (e.type == MIDI_NOTEON && e.velocity) {
-                _frequency = noteToFrequency(e.note);
-                _velocity = e.velocity;
+                _note = e.note;
+                _frequency = noteToFrequency(_note);
+                _velocity = (double) e.velocity / 127.0;
+                _notes[_note] = true;
             }
             break;
 
         case MIDI_NOTEOFF:
+            _notes[e.note] = false;
             _frequency = -1.0;
-            _velocity = 0;
+            _velocity = 0.0;
             break;
 
         case MIDI_PITCHBEND:
