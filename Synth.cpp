@@ -32,6 +32,9 @@ sigint (int sig_num)
 
 class Envelope {
 public:
+    /* Sample rate for all envelopes */
+    static unsigned long rate;
+
     typedef enum _EnvelopeStage {
         STAGE_OFF = 0,
         STAGE_ATTACK,
@@ -42,19 +45,21 @@ public:
     } EnvelopeStage;
 
     Envelope (double attack, double decay, double sustain, double release)
-        : _minOut (0.0001)
-        , _out (_minOut)
+        : _minLevel (0.0001)
+        , _level (_minLevel)
         , _multiplier (1.0) 
         , _stage (STAGE_OFF)
         , _currSample (0)
         , _nextStageAt (0)
     {
+        /* determines when the next stage occurs */
         _values[STAGE_OFF]     = 0.0;
         _values[STAGE_ATTACK]  = attack;
         _values[STAGE_DECAY]   = decay;
         _values[STAGE_SUSTAIN] = sustain;
         _values[STAGE_RELEASE] = release;
 
+        /* simple state transition table */
         _next[STAGE_OFF]     = STAGE_OFF;
         _next[STAGE_ATTACK]  = STAGE_DECAY;
         _next[STAGE_DECAY]   = STAGE_SUSTAIN;
@@ -72,23 +77,45 @@ public:
         enterStage(STAGE_RELEASE);
     }
 
+    bool isActive () const
+    {
+        if (_stage == STAGE_OFF)
+            return false;
+        if (_stage == STAGE_RELEASE && _level <= _minLevel)
+            return false;
+        return true;
+    }
+
     double next ()
     {
         if (!(_stage == STAGE_OFF || _stage == STAGE_SUSTAIN)) {
             if (_currSample == _nextStageAt)
                 enterStage(getNextStage());
-            _out *= _multiplier;
+            _level *= _multiplier;
             _currSample++;
         }
-        return _out;
+        return _level;
+    }
+
+    /* Set the sample rate for all envelopes created */
+    static void setRate (unsigned long rate)
+    {
+        Envelope::rate = rate;
     }
 
 protected:
-    EnvelopeStage getNextStage ()
+    EnvelopeStage getNextStage () const
     {
         return _next[_stage];
     }
 
+    /* 
+     * Calculates a multiplier used to change the output level from `start' to
+     * `end' over `_nextStageAt' number of samples. Since ears logarithmically,
+     * i.e. exponential changes sound linear to the ear, this calculates the
+     * exponential curve between two points. Rather than call `exp' this is
+     * a faster optimization.
+     */
     void calcStageMultiplier (double start, double end)
     {
         _multiplier = 1.0 + (log(end) - log(start)) / _nextStageAt;
@@ -102,26 +129,26 @@ protected:
         if (_stage == STAGE_OFF || _stage == STAGE_SUSTAIN)
             _nextStageAt = 0;
         else
-            _nextStageAt = _values[_stage] * 44100;
+            _nextStageAt = _values[_stage] * Envelope::rate;
 
         switch (_stage) {
             case STAGE_OFF:
-                _out = 0.0;
+                _level = 0.0;
                 _multiplier = 1.0;
                 break;
 
             case STAGE_ATTACK:
-                _out = _minOut;
-                calcStageMultiplier(_out, 1.0);
+                _level = _minLevel;
+                calcStageMultiplier(_level, 1.0);
                 break;
 
             case STAGE_DECAY:
-                _out = 1.0;
-                calcStageMultiplier(_out, fmax(_values[STAGE_SUSTAIN], _minOut));
+                _level = 1.0;
+                calcStageMultiplier(_level, fmax(_values[STAGE_SUSTAIN], _minLevel));
                 break;
 
             case STAGE_SUSTAIN:
-                _out = _values[STAGE_SUSTAIN];
+                _level = _values[STAGE_SUSTAIN];
                 _multiplier = 1.0;
                 break;
 
@@ -130,7 +157,7 @@ protected:
                  * Because this stage can be entered by any stage by releasing
                  * the key, let it `decay' from the current output level.
                  */
-                calcStageMultiplier(_out, _minOut);
+                calcStageMultiplier(_level, _minLevel);
                 break;
 
             default:
@@ -139,8 +166,8 @@ protected:
     }
 
 private:
-    const double _minOut;
-    double _out;
+    const double _minLevel;
+    double _level;
     double _multiplier;
 
     EnvelopeStage _stage;
@@ -151,55 +178,154 @@ private:
     unsigned long _currSample;
     unsigned long _nextStageAt;
 };
+unsigned long Envelope::rate = 44100;
+
+#include <unordered_map>
+#include <cassert>
+#include "Definitions.hpp"
+
+class PolyNote {
+public:
+    /* PolyNotes start in the active state */
+    PolyNote (double frequency, double velocity)
+        : _isActive (false)
+        , _velocity (0.0)
+        , _env (Envelope(0.01, 0.5, 0.1, 1.0))
+    {
+        noteOn(velocity);
+        _oscillator.setFreq(frequency);
+        _oscillator.unmute();
+    }
+
+    /* Resets the envelope and note if already active */
+    void noteOn (double velocity)
+    {
+        _isActive = true;
+        _velocity = velocity;
+        _env.noteOn();
+    }
+
+    void noteOff ()
+    {
+        _env.noteOff();
+    }
+
+    bool isActive () const
+    {
+        return _isActive;
+    }
+
+    double next ()
+    {
+        assert(_isActive);
+        _isActive = _env.isActive();
+        return  _oscillator.next() * _env.next() * _velocity;
+    }
+
+private:
+    bool _isActive;
+    double _velocity;
+    Envelope _env;
+    Oscillator _oscillator;
+};
+
+class Polyphonic {
+public:
+    Polyphonic ()
+    { }
+
+    void noteOn (int note, double velocity)
+    {
+        auto it = _notes.find(note);
+        if (it != _notes.end()) {
+            /* turn note back on if it already exists */
+            it->second.noteOn(velocity);
+        } else {
+            /* otherwise just create it */
+            double freq = 440.0 * pow(2.0, (note - 69.0) / 12.0);
+            _notes.insert({note, PolyNote(freq, velocity)});
+        }
+    }
+
+    void noteOff (int note)
+    {
+        auto it = _notes.find(note);
+        if (it == _notes.end())
+            return;
+        it->second.noteOff();
+    }
+
+    bool noteActive (int note)
+    {
+        auto it = _notes.find(note);
+        if (it == _notes.end())
+            return false;
+        return it->second.isActive();
+    }
+
+    double next ()
+    {
+        double out = 0.0;
+        /* This weird construction allows removing objects while iterating */
+        for (auto it = _notes.begin(); it != _notes.end(); ) {
+            if (!it->second.isActive()) {
+                if (DEBUG)
+                    printf("Removing note %2x\n", it->first);
+                it = _notes.erase(it);
+            } else {
+                out += it->second.next();
+                it++;
+            }
+        }
+        return out;
+    }
+
+private:
+    std::unordered_map<int, PolyNote> _notes;
+};
 
 int
 main (int argc, char **argv)
 {
     signal(SIGINT, sigint);
 
-    if (argc < 5) {
-        fprintf(stderr,
-                "./synth <a> <d> <s> <r>\n"); 
-        exit(1);
-    }
-    double attack = atof(argv[1]);
-    double decay = atof(argv[2]);
-    double sustain = atof(argv[3]);
-    double release = atof(argv[4]);
+    //if (argc < 5) {
+    //    fprintf(stderr,
+    //            "./synth <a> <d> <s> <r>\n"); 
+    //    exit(1);
+    //}
+    //double attack = atof(argv[1]);
+    //double decay = atof(argv[2]);
+    //double sustain = atof(argv[3]);
+    //double release = atof(argv[4]);
 
     AudioDevice PCM;
-    Oscillator oscillator;
-    MidiController midi;
-    Envelope env(attack, decay, sustain, release);
 
+    size_t rate = PCM.getRate();
     size_t period_size = PCM.getPeriodSize();
     size_t samples_len = period_size;
     size_t samples_bytes = samples_len * sizeof(double);
     double *samples = (double*) malloc(samples_bytes);
 
-    oscillator.setRate(PCM.getRate());
-    oscillator.setFreq(440.0);
-    oscillator.unmute();
-
-    int lastNote = -1;
+    Oscillator::setRate(rate);
+    Envelope::setRate(rate);
+    MidiController midi;
+    Polyphonic polyphonic;
 
     while (progRunning) {
         for (unsigned i = 0; i < samples_len; ++i) {
-            midi.process();
-            if (midi.velocity() > 0) {
-                oscillator.setFreq(midi.frequency());
-                oscillator.setPitch(midi.pitch());
+            MidiEvent e = midi.nextEvent();
+            switch (e.type) {
+                case MIDI_NOTEON:
+                    polyphonic.noteOn(e.note, e.velocity);
+                    break;
+                case MIDI_NOTEOFF:
+                    polyphonic.noteOff(e.note);
+                    break;
+                default:
+                    break;
             }
-            if (midi.note() > 0) {
-                lastNote = midi.note();
-                env.noteOn();
-            }
-            else if (lastNote > 0 && !midi.noteOn(lastNote)) {
-                env.noteOff();
-                lastNote = -1;
-            }
-            samples[i] = clip(oscillator.next()  * env.next());
-            //samples[i] = clip(oscillator.next()  * env.next() * midi.velocity());
+            samples[i] = clip(polyphonic.next());
         }
         PCM.play(samples, samples_len);
     }

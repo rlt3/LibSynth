@@ -15,6 +15,8 @@ enum OscillatorMode {
 
 class Oscillator {
 public:
+    static unsigned long rate;
+
     Oscillator ();
 
     /* get the next sample from the oscillator */
@@ -22,10 +24,12 @@ public:
 
     void setMode  (enum OscillatorMode);
     void setFreq  (double);
-    void setRate  (double);
     void setPitch (double);
     void mute ();
     void unmute ();
+
+    /* Set the sample rate for all oscillators */
+    static void setRate (unsigned long);
 
 protected:
     /* set the phase increment using the current values */
@@ -40,8 +44,6 @@ protected:
 private:
     enum OscillatorMode _mode;
 
-    /* sample rate */
-    double _rate;
     /* frequency */
     double _freq;
     /* pitch modulation value */

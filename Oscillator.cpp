@@ -2,9 +2,10 @@
 #include "Oscillator.hpp"
 #include "Definitions.hpp"
 
+unsigned long Oscillator::rate = 44100.0;
+
 Oscillator::Oscillator ()
     : _mode (OSCILLATOR_MODE_SAW)
-    , _rate (44100.0)
     , _freq (440.0)
     , _pitch (0.0)
     , _phase (0.0)
@@ -29,13 +30,6 @@ Oscillator::setFreq (double freq)
 }
 
 void
-Oscillator::setRate (double rate)
-{
-    _rate = rate;
-    setIncrement();
-}
-
-void
 Oscillator::setPitch (double pitch)
 {
     _pitch = pitch;
@@ -54,6 +48,13 @@ Oscillator::unmute ()
     _muted = false;
 }
 
+/* Set the sample rate for all oscillators */
+void
+Oscillator::setRate (unsigned long rate)
+{
+    Oscillator::rate = (double) rate;
+}
+
 void
 Oscillator::setIncrement ()
 {
@@ -61,8 +62,8 @@ Oscillator::setIncrement ()
     if (_pitch < 0) {
         pitchModAsFrequency = -pitchModAsFrequency;
     }
-    double freq = fmin(fmax(_freq + pitchModAsFrequency, 0), _rate / 2.0);
-    _phaseIncrement = freq * TWOPI / _rate;
+    double freq = fmin(fmax(_freq + pitchModAsFrequency, 0), Oscillator::rate / 2.0);
+    _phaseIncrement = freq * TWOPI / Oscillator::rate;
 }
 
 double

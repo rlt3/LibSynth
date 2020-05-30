@@ -8,7 +8,7 @@ _midi_event_process (snd_seq_event_t *ev)
 {
     MidiEventType type = MIDI_UNHANDLED;
     int note = 0;
-    int velocity = 0;
+    double velocity = 0;
     double pitch = 0.0;
 
     switch (ev->type) {
@@ -40,7 +40,7 @@ _midi_event_process (snd_seq_event_t *ev)
             if (ev->data.note.velocity > 0) {
                 type = MIDI_NOTEON;
                 note = ev->data.note.note;
-                velocity = ev->data.note.velocity;
+                velocity = (double)ev->data.note.velocity / 127.0;
             }
             break;
         }
@@ -207,7 +207,7 @@ MidiController::process ()
             if (e.type == MIDI_NOTEON && e.velocity) {
                 _note = e.note;
                 _frequency = noteToFrequency(_note);
-                _velocity = (double) e.velocity / 127.0;
+                _velocity = e.velocity;
                 _notes[_note] = true;
             }
             break;

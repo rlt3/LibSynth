@@ -16,10 +16,10 @@ typedef enum _MidiEventType {
 struct MidiEvent {
     MidiEventType type;
     int note;
-    int velocity;
+    double velocity;
     double pitch;
 
-    MidiEvent (MidiEventType t, int n, int v, double p)
+    MidiEvent (MidiEventType t, int n, double v, double p)
         : type (t)
         , note (n)
         , velocity (v)
