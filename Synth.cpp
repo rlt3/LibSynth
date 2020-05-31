@@ -30,25 +30,31 @@ sigint (int sig_num)
     fflush(stdout);
 }
 
+typedef enum _EnvelopeStage {
+    STAGE_OFF = 0,
+    STAGE_ATTACK,
+    STAGE_DECAY,
+    STAGE_SUSTAIN,
+    STAGE_RELEASE,
+    NUM_STAGES,
+} EnvelopeStage;
+
 class Envelope {
 public:
     /* Sample rate for all envelopes */
     static unsigned long rate;
 
-    typedef enum _EnvelopeStage {
-        STAGE_OFF = 0,
-        STAGE_ATTACK,
-        STAGE_DECAY,
-        STAGE_SUSTAIN,
-        STAGE_RELEASE,
-        NUM_STAGES,
-    } EnvelopeStage;
+    /* Set the sample rate for all envelopes created */
+    static void setRate (unsigned long rate)
+    {
+        Envelope::rate = rate;
+    }
 
     Envelope (double attack, double decay, double sustain, double release)
         : _minLevel (0.0001)
         , _level (_minLevel)
         , _multiplier (1.0) 
-        , _stage (STAGE_OFF)
+        , _currStage (STAGE_OFF)
         , _currSample (0)
         , _nextStageAt (0)
     {
@@ -79,16 +85,16 @@ public:
 
     bool isActive () const
     {
-        if (_stage == STAGE_OFF)
+        if (_currStage == STAGE_OFF)
             return false;
-        if (_stage == STAGE_RELEASE && _level <= _minLevel)
+        if (_currStage == STAGE_RELEASE && _level <= _minLevel)
             return false;
         return true;
     }
 
     double next ()
     {
-        if (!(_stage == STAGE_OFF || _stage == STAGE_SUSTAIN)) {
+        if (!(_currStage == STAGE_OFF || _currStage == STAGE_SUSTAIN)) {
             if (_currSample == _nextStageAt)
                 enterStage(getNextStage());
             _level *= _multiplier;
@@ -97,16 +103,46 @@ public:
         return _level;
     }
 
-    /* Set the sample rate for all envelopes created */
-    static void setRate (unsigned long rate)
+    void setValue (EnvelopeStage stage, double value)
     {
-        Envelope::rate = rate;
+        _values[stage] = value;
+        if (_currStage != stage || _currStage == STAGE_OFF)
+            return;
+        if (_currStage == STAGE_SUSTAIN) {
+            _level = value;
+        }
+        else if (_currStage == STAGE_DECAY && stage == STAGE_SUSTAIN) {
+            size_t samplesLeft = _nextStageAt - _currSample;
+            calcStageMultiplier(_level, fmax(value, _minLevel), samplesLeft);
+        }
+        else {
+            double nextLevel = _minLevel;
+            switch (_currStage) {
+                case STAGE_ATTACK:
+                    nextLevel = 1.0;
+                    break;
+                case STAGE_DECAY:
+                    nextLevel = fmax(_values[STAGE_SUSTAIN], _minLevel);
+                    break;
+                case STAGE_RELEASE:
+                    nextLevel = _minLevel;
+                    break;
+                default:
+                    break;
+            }
+
+            double percentDone = (double) _currSample / (double) _nextStageAt;
+            double percentLeft = 1.0 - percentDone;
+            size_t samplesLeft = percentLeft * value * Envelope::rate;
+            _nextStageAt = _currSample + samplesLeft;
+            calcStageMultiplier(_level, nextLevel, samplesLeft);
+        }
     }
 
 protected:
     EnvelopeStage getNextStage () const
     {
-        return _next[_stage];
+        return _next[_currStage];
     }
 
     /* 
@@ -116,22 +152,26 @@ protected:
      * exponential curve between two points. Rather than call `exp' this is
      * a faster optimization.
      */
-    void calcStageMultiplier (double start, double end)
+    void calcStageMultiplier (double start, double end, size_t numSamples)
     {
-        _multiplier = 1.0 + (log(end) - log(start)) / _nextStageAt;
+        _multiplier = 1.0 + (log(end) - log(start)) / numSamples;
+    }
+
+    void updateLevels ()
+    {
     }
 
     void enterStage (EnvelopeStage stage)
     {
-        _stage = stage;
+        _currStage = stage;
 
         _currSample = 0;
-        if (_stage == STAGE_OFF || _stage == STAGE_SUSTAIN)
+        if (_currStage == STAGE_OFF || _currStage == STAGE_SUSTAIN)
             _nextStageAt = 0;
         else
-            _nextStageAt = _values[_stage] * Envelope::rate;
+            _nextStageAt = _values[_currStage] * Envelope::rate;
 
-        switch (_stage) {
+        switch (_currStage) {
             case STAGE_OFF:
                 _level = 0.0;
                 _multiplier = 1.0;
@@ -139,12 +179,14 @@ protected:
 
             case STAGE_ATTACK:
                 _level = _minLevel;
-                calcStageMultiplier(_level, 1.0);
+                calcStageMultiplier(_level, 1.0, _nextStageAt);
                 break;
 
             case STAGE_DECAY:
                 _level = 1.0;
-                calcStageMultiplier(_level, fmax(_values[STAGE_SUSTAIN], _minLevel));
+                calcStageMultiplier(_level,
+                        fmax(_values[STAGE_SUSTAIN], _minLevel),
+                        _nextStageAt);
                 break;
 
             case STAGE_SUSTAIN:
@@ -157,7 +199,7 @@ protected:
                  * Because this stage can be entered by any stage by releasing
                  * the key, let it `decay' from the current output level.
                  */
-                calcStageMultiplier(_level, _minLevel);
+                calcStageMultiplier(_level, _minLevel, _nextStageAt);
                 break;
 
             default:
@@ -170,13 +212,13 @@ private:
     double _level;
     double _multiplier;
 
-    EnvelopeStage _stage;
+    EnvelopeStage _currStage;
 
     double _values[NUM_STAGES];
     EnvelopeStage _next[NUM_STAGES];
 
-    unsigned long _currSample;
-    unsigned long _nextStageAt;
+    size_t _currSample;
+    size_t _nextStageAt;
 };
 unsigned long Envelope::rate = 44100;
 
@@ -187,10 +229,11 @@ unsigned long Envelope::rate = 44100;
 class PolyNote {
 public:
     /* PolyNotes start in the active state */
-    PolyNote (const double frequency, const double velocity)
+    PolyNote (const double frequency, const double velocity,
+              double attack, double decay, double sustain, double release)
         : _isActive (false)
         , _velocity (0.0)
-        , _env (Envelope(0.01, 0.5, 0.1, 1.0))
+        , _env (Envelope(attack, decay, sustain, release))
     {
         noteOn(velocity);
         _oscillator.setFreq(frequency);
@@ -215,6 +258,16 @@ public:
         return _isActive;
     }
 
+    void setPitch (double value)
+    {
+        _oscillator.setPitch(value);
+    }
+
+    void setADSR (EnvelopeStage stage, double value)
+    {
+        _env.setValue(stage, value);
+    }
+
     double next ()
     {
         assert(_isActive);
@@ -231,8 +284,13 @@ private:
 
 class Polyphonic {
 public:
-    Polyphonic ()
-    { }
+    Polyphonic (double attack, double decay, double sustain, double release)
+        : _attack (attack)
+        , _decay (decay)
+        , _sustain (sustain)
+        , _release (release)
+    {
+    }
 
     void noteOn (const int note, const double velocity)
     {
@@ -243,7 +301,8 @@ public:
         } else {
             /* otherwise just create it */
             double freq = 440.0 * pow(2.0, (note - 69.0) / 12.0);
-            _notes.insert({note, PolyNote(freq, velocity)});
+            _notes.insert({note,
+                    PolyNote(freq, velocity, _attack, _decay, _sustain, _release)});
         }
     }
 
@@ -264,6 +323,26 @@ public:
         return it->second.isActive();
     }
 
+    void setPitch (double value)
+    {
+        for (auto it = _notes.begin(); it != _notes.end(); it++)
+            it->second.setPitch(value);
+    }
+
+    void setADSR (EnvelopeStage stage, double value)
+    {
+        switch (stage) {
+            case STAGE_ATTACK: _attack = value; break;
+            case STAGE_DECAY: _decay = value; break;
+            case STAGE_SUSTAIN: _sustain = value; break;
+            case STAGE_RELEASE: _release = value; break;
+            default:
+                break;
+        }
+        for (auto it = _notes.begin(); it != _notes.end(); it++)
+            it->second.setADSR(stage, value);
+    }
+
     double next ()
     {
         double out = 0.0;
@@ -282,6 +361,10 @@ public:
     }
 
 private:
+    double _attack;
+    double _decay;
+    double _sustain;
+    double _release;
     std::unordered_map<int, PolyNote> _notes;
 };
 
@@ -290,22 +373,19 @@ main (int argc, char **argv)
 {
     signal(SIGINT, sigint);
 
-    if (argc < 2) {
-        fprintf(stderr, "./synth <MidiDevice>\n");
+    if (argc < 9) {
+        fprintf(stderr, "./synth <MidiDevice> <FM> <harmonic> <subharmonic> <a> <d> <s> <r>\n");
         exit(1);
     }
 
     const char *midiDevice = argv[1];
-
-    //if (argc < 5) {
-    //    fprintf(stderr,
-    //            "./synth <a> <d> <s> <r>\n"); 
-    //    exit(1);
-    //}
-    //double attack = atof(argv[1]);
-    //double decay = atof(argv[2]);
-    //double sustain = atof(argv[3]);
-    //double release = atof(argv[4]);
+    //double modAmplitude = atof(argv[2]);
+    //double harmonic = atof(argv[3]);
+    //double subharmonic = atof(argv[4]);
+    double attack = atof(argv[5]);
+    double decay = atof(argv[6]);
+    double sustain = atof(argv[7]);
+    double release = atof(argv[8]);
 
     AudioDevice audio;
 
@@ -315,16 +395,28 @@ main (int argc, char **argv)
     size_t samples_bytes = samples_len * sizeof(double);
     double *samples = (double*) malloc(samples_bytes);
 
-    Oscillator LFO;
-    LFO.setMode(OSCILLATOR_MODE_TRIANGLE);
-    LFO.useNaive(true);
-    LFO.setFreq(40.0);
-    double LFOFilter = 0.1;
+    //Oscillator LFO;
+    //LFO.setMode(OSCILLATOR_MODE_TRIANGLE);
+    //LFO.useNaive(true);
+    //LFO.setFreq(40.0);
+    //double LFOFilter = 0.1;
 
     Oscillator::setRate(rate);
     Envelope::setRate(rate);
     MidiController midi(midiDevice);
-    Polyphonic polyphonic;
+    Polyphonic polyphonic(attack, decay, sustain, release);
+
+    //Oscillator modulator;
+    //Oscillator carrier;
+    //modulator.setFreq();
+    //carrier.setFreq();
+
+    //const double freqRadians = TWOPI / rate;
+    //double carFreq = 40.0;
+    //double carIncr = freqRadians * carFreq;
+    //double modIncr = carIncr * (harmonic / subharmonic);
+    //double modPhase = 0.0;
+    //double carPhase = 0.0;
 
     while (progRunning) {
         for (unsigned i = 0; i < samples_len; ++i) {
@@ -336,14 +428,15 @@ main (int argc, char **argv)
                 case MIDI_NOTEOFF:
                     polyphonic.noteOff(e.note);
                     break;
-                //case MIDI_PITCHBEND:
-                //    polyphonic.setPitch(e.pitch);
-                //    break;
+                case MIDI_PITCHBEND:
+                    polyphonic.setPitch(e.pitch);
+                    break;
                 case MIDI_CONTROL:
-                    if (e.note == 1) {
-                        LFOFilter = e.control;
-                        if (DEBUG)
-                            printf("LFOFilter = %lf\n", LFOFilter);
+                    switch (e.note) {
+                        case 1: polyphonic.setADSR(STAGE_ATTACK, e.control); break;
+                        case 2: polyphonic.setADSR(STAGE_DECAY, e.control); break;
+                        case 3: polyphonic.setADSR(STAGE_SUSTAIN, e.control); break;
+                        case 4: polyphonic.setADSR(STAGE_RELEASE, e.control); break;
                     }
                     break;
                 default:
@@ -352,6 +445,32 @@ main (int argc, char **argv)
             samples[i] = clip(polyphonic.next());
         }
         audio.play(samples, samples_len);
+
+        //for (unsigned i = 0; i < samples_len; ++i) {
+        //    MidiEvent e = midi.nextEvent();
+        //    switch (e.type) {
+        //        case MIDI_NOTEON:
+        //            env.noteOn();
+        //            break;
+        //        case MIDI_NOTEOFF:
+        //            env.noteOff();
+        //            break;
+        //        default:
+        //            break;
+        //    }
+        //    if (!env.isActive()) {
+        //        samples[i] = 0.0;
+        //        continue;
+        //    }
+        //    samples[i] = clip(sin(carPhase) * env.next());
+        //    carPhase += carIncr + (modAmplitude * sin(modPhase));
+        //    if (carPhase > TWOPI)
+        //        carPhase -= TWOPI;
+        //    modPhase += modIncr;
+        //    if (modPhase > TWOPI)
+        //        modPhase -= TWOPI;
+        //}
+        //audio.play(samples, samples_len);
     }
 
     free(samples);

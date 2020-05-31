@@ -139,7 +139,7 @@ MidiController::MidiController (const char *midiDevice)
     CHK(snd_seq_nonblock(handle, 1), "Could not set non-blocking");
 
 
-    /* Iterate of active clients until we find the midiDevice */
+    /* Iterate over active clients until we find the midiDevice */
     int client = -1;
     snd_seq_client_info_t *cinfo;
 	snd_seq_client_info_alloca(&cinfo);
