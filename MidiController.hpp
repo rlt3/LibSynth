@@ -48,7 +48,7 @@ struct MidiEvent {
 
 class MidiController {
 public:
-    MidiController ();
+    MidiController (const char *midiDevice);
     ~MidiController ();
 
     double frequency () const;

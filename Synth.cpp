@@ -215,12 +215,11 @@ public:
         return _isActive;
     }
 
-    double next (double LFOSample)
+    double next ()
     {
         assert(_isActive);
         _isActive = _env.isActive();
-        return  (_oscillator.next() * _env.next() * _velocity) + LFOSample;
-        //return  (_oscillator.next() * _env.next() * _velocity) * LFOSample;
+        return  _oscillator.next() * _env.next() * _velocity;
     }
 
 private:
@@ -265,7 +264,7 @@ public:
         return it->second.isActive();
     }
 
-    double next (const double LFOSample)
+    double next ()
     {
         double out = 0.0;
         /* This weird construction allows removing objects while iterating */
@@ -275,7 +274,7 @@ public:
                     printf("Removing note %2x\n", it->first);
                 it = _notes.erase(it);
             } else {
-                out += it->second.next(LFOSample);
+                out += it->second.next();
                 it++;
             }
         }
@@ -290,6 +289,13 @@ int
 main (int argc, char **argv)
 {
     signal(SIGINT, sigint);
+
+    if (argc < 2) {
+        fprintf(stderr, "./synth <MidiDevice>\n");
+        exit(1);
+    }
+
+    const char *midiDevice = argv[1];
 
     //if (argc < 5) {
     //    fprintf(stderr,
@@ -317,7 +323,8 @@ main (int argc, char **argv)
 
     Oscillator::setRate(rate);
     Envelope::setRate(rate);
-    MidiController midi; Polyphonic polyphonic;
+    MidiController midi(midiDevice);
+    Polyphonic polyphonic;
 
     while (progRunning) {
         for (unsigned i = 0; i < samples_len; ++i) {
@@ -342,7 +349,7 @@ main (int argc, char **argv)
                 default:
                     break;
             }
-            samples[i] = clip(polyphonic.next(LFO.next() * LFOFilter));
+            samples[i] = clip(polyphonic.next());
         }
         audio.play(samples, samples_len);
     }

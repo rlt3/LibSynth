@@ -115,7 +115,7 @@ _midi_event_thread (void *data)
     return NULL;
 }
 
-MidiController::MidiController ()
+MidiController::MidiController (const char *midiDevice)
     : _sequencer (NULL)
     , _frequency (-1.0)
     , _velocity (0.0)
@@ -137,6 +137,28 @@ MidiController::MidiController ()
             "Could not open port");
 
     CHK(snd_seq_nonblock(handle, 1), "Could not set non-blocking");
+
+
+    /* Iterate of active clients until we find the midiDevice */
+    int client = -1;
+    snd_seq_client_info_t *cinfo;
+	snd_seq_client_info_alloca(&cinfo);
+	snd_seq_client_info_set_client(cinfo, -1);
+	while (snd_seq_query_next_client(handle, cinfo) >= 0) {
+        char const* name = snd_seq_client_info_get_name(cinfo);
+        if (strcmp(name, midiDevice) != 0)
+            continue;
+		client = snd_seq_client_info_get_client(cinfo);
+	}
+
+    if (client < 0) {
+        fprintf(stderr, "Could not find midi device %s\n", midiDevice);
+        exit(1);
+    }
+
+    /* try to connect to client on port 0. TODO: accept port as argument */
+    CHK(snd_seq_connect_from(handle, seq_port, client, 0),
+            "Client connection failed");
 
     /* Create the struct to pass data to the event thread */
     MidiThreadData *data = new MidiThreadData();
