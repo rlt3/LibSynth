@@ -115,11 +115,15 @@ protected:
 private:
     FilterMode _mode;
 
+    /* actual cutoff used when filtering */
     double _cutoff;
+    /* used as the cutoff threshold when adding the modulation */
     double _cutoffThresh;
+    /* modulation from an envelope or whatever else */
     double _cutoffMod;
     double _resonance;
     double _feedback;
+    /* four filter accumulators in series */
     double _buf0;
     double _buf1;
     double _buf2;
