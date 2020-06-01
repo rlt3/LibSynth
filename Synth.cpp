@@ -30,9 +30,104 @@ sigint (int sig_num)
     fflush(stdout);
 }
 
+typedef enum _FilterMode {
+    FILTER_LOWPASS = 0,
+    FILTER_HIGHPASS,
+    FILTER_BANDPASS,
+} FilterMode;
+
+/*
+ * Low/Hi/Bandpass filter
+ */
+class Filter {
+public:
+    Filter (const double cutoff, const double resonance)
+        : _mode (FILTER_LOWPASS)
+        , _cutoff (0.0)
+        , _cutoffThresh (cutoff)
+        , _cutoffMod (0.0)
+        , _resonance (resonance)
+        , _buf0 (0.0)
+        , _buf1 (0.0)
+        , _buf2 (0.0)
+        , _buf3 (0.0)
+    {
+        updateCutoff();
+        updateFeedback();
+    }
+
+    double process (const double input)
+    {
+        if (input == 0.0)
+            return input;
+        _buf0 += _cutoff * (input - _buf0 + _feedback * (_buf0 - _buf1));
+        _buf1 += _cutoff * (_buf0 - _buf1);
+        _buf2 += _cutoff * (_buf1 - _buf2);
+        _buf3 += _cutoff * (_buf2 - _buf3);
+        switch (_mode) {
+            case FILTER_LOWPASS:
+                return _buf3;
+            case FILTER_HIGHPASS:
+                return input - _buf3;
+            case FILTER_BANDPASS:
+                return _buf0 - _buf3;
+            default:
+                return 0.0;
+        }
+    }
+
+    void setCutoff (const double cutoff)
+    {
+        _cutoffThresh = cutoff;
+        updateCutoff();
+        updateFeedback();
+    }
+
+    void setCutoffMod (const double cutoffMod)
+    {
+        _cutoffMod = cutoffMod;
+        updateCutoff();
+        updateFeedback();
+    }
+
+    void setResonance (const double resonance)
+    {
+        _resonance = resonance;
+        updateFeedback();
+    }
+
+    void setMode (FilterMode mode)
+    {
+        _mode = mode;
+    }
+
+protected:
+    void inline updateCutoff ()
+    {
+        _cutoff = fmax(fmin(_cutoffThresh + _cutoffMod, 0.99), 0.01);
+    }
+
+    void inline updateFeedback ()
+    {
+        _feedback = _resonance + (_resonance / (1.0 - _cutoff));
+    }
+
+private:
+    FilterMode _mode;
+
+    double _cutoff;
+    double _cutoffThresh;
+    double _cutoffMod;
+    double _resonance;
+    double _feedback;
+    double _buf0;
+    double _buf1;
+    double _buf2;
+    double _buf3;
+};
+
 typedef enum _EnvelopeStage {
-    STAGE_OFF = 0,
-    STAGE_ATTACK,
+    STAGE_ATTACK = 0,
     STAGE_DECAY,
     STAGE_SUSTAIN,
     STAGE_RELEASE,
@@ -50,23 +145,21 @@ public:
         Envelope::rate = rate;
     }
 
-    Envelope (double attack, double decay, double sustain, double release)
+    Envelope (double ADSR[4])
         : _minLevel (0.0001)
         , _level (_minLevel)
         , _multiplier (1.0) 
-        , _currStage (STAGE_OFF)
+        , _currStage (STAGE_ATTACK)
         , _currSample (0)
         , _nextStageAt (0)
     {
         /* determines when the next stage occurs */
-        _values[STAGE_OFF]     = 0.0;
-        _values[STAGE_ATTACK]  = attack;
-        _values[STAGE_DECAY]   = decay;
-        _values[STAGE_SUSTAIN] = sustain;
-        _values[STAGE_RELEASE] = release;
+        _values[STAGE_ATTACK]  = ADSR[0];
+        _values[STAGE_DECAY]   = ADSR[1];
+        _values[STAGE_SUSTAIN] = ADSR[2];
+        _values[STAGE_RELEASE] = ADSR[3];
 
         /* simple state transition table */
-        _next[STAGE_OFF]     = STAGE_OFF;
         _next[STAGE_ATTACK]  = STAGE_DECAY;
         _next[STAGE_DECAY]   = STAGE_SUSTAIN;
         _next[STAGE_SUSTAIN] = STAGE_SUSTAIN;
@@ -85,8 +178,6 @@ public:
 
     bool isActive () const
     {
-        if (_currStage == STAGE_OFF)
-            return false;
         if (_currStage == STAGE_RELEASE && _level <= _minLevel)
             return false;
         return true;
@@ -94,7 +185,7 @@ public:
 
     double next ()
     {
-        if (!(_currStage == STAGE_OFF || _currStage == STAGE_SUSTAIN)) {
+        if (_currStage != STAGE_SUSTAIN) {
             if (_currSample == _nextStageAt)
                 enterStage(getNextStage());
             _level *= _multiplier;
@@ -106,7 +197,7 @@ public:
     void setValue (EnvelopeStage stage, double value)
     {
         _values[stage] = value;
-        if (_currStage != stage || _currStage == STAGE_OFF)
+        if (_currStage != stage)
             return;
         if (_currStage == STAGE_SUSTAIN) {
             _level = value;
@@ -157,26 +248,17 @@ protected:
         _multiplier = 1.0 + (log(end) - log(start)) / numSamples;
     }
 
-    void updateLevels ()
-    {
-    }
-
     void enterStage (EnvelopeStage stage)
     {
         _currStage = stage;
 
         _currSample = 0;
-        if (_currStage == STAGE_OFF || _currStage == STAGE_SUSTAIN)
+        if (_currStage == STAGE_SUSTAIN)
             _nextStageAt = 0;
         else
             _nextStageAt = _values[_currStage] * Envelope::rate;
 
         switch (_currStage) {
-            case STAGE_OFF:
-                _level = 0.0;
-                _multiplier = 1.0;
-                break;
-
             case STAGE_ATTACK:
                 _level = _minLevel;
                 calcStageMultiplier(_level, 1.0, _nextStageAt);
@@ -229,13 +311,21 @@ unsigned long Envelope::rate = 44100;
 class PolyNote {
 public:
     /* PolyNotes start in the active state */
-    PolyNote (const double frequency, const double velocity,
-              double attack, double decay, double sustain, double release)
+    PolyNote (const double frequency,
+              const double velocity,
+              double ADSR[4],
+              const double cutoff,
+              const double resonance,
+              double filterADSR[4])
         : _isActive (false)
         , _velocity (0.0)
-        , _env (Envelope(attack, decay, sustain, release))
+        , _filter (Filter(cutoff, resonance))
+        , _env (Envelope(ADSR))
+        , _filterEnv (Envelope(filterADSR))
     {
         noteOn(velocity);
+        _filter.setMode(FILTER_LOWPASS);
+        _oscillator.setMode(OSCILLATOR_MODE_SQUARE);
         _oscillator.setFreq(frequency);
         _oscillator.unmute();
     }
@@ -268,28 +358,70 @@ public:
         _env.setValue(stage, value);
     }
 
+    void setFilterCutoff (double value)
+    {
+        _filter.setCutoff(value);
+    }
+
+    void setFilterResonance (double value)
+    {
+        _filter.setResonance(value);
+    }
+
+    void setFilterADSR (EnvelopeStage stage, double value)
+    {
+        switch (stage) {
+            case STAGE_ATTACK:
+                printf("ATTACK: %lf\n", value);
+                break;
+            case STAGE_DECAY:
+                printf("DECAY: %lf\n", value);
+                break;
+            case STAGE_SUSTAIN:
+                printf("SUSTAIN: %lf\n", value);
+                break;
+            case STAGE_RELEASE:
+                printf("RELEASE: %lf\n", value);
+                break;
+            default:
+                printf("bad: %lf\n", value);
+                break;
+        }
+        _filterEnv.setValue(stage, value);
+    }
+
     double next ()
     {
         assert(_isActive);
         _isActive = _env.isActive();
-        return  _oscillator.next() * _env.next() * _velocity;
+        _filter.setCutoffMod(_filterEnv.next() * 0.8);
+        return _filter.process(_oscillator.next() * _env.next() * _velocity);
     }
 
 private:
     bool _isActive;
     double _velocity;
+    Filter _filter;
     Envelope _env;
+    Envelope _filterEnv;
     Oscillator _oscillator;
 };
 
 class Polyphonic {
 public:
     Polyphonic (double attack, double decay, double sustain, double release)
-        : _attack (attack)
-        , _decay (decay)
-        , _sustain (sustain)
-        , _release (release)
     {
+        _noteADSR[STAGE_ATTACK] = attack;
+        _noteADSR[STAGE_DECAY] = decay;
+        _noteADSR[STAGE_SUSTAIN] = sustain;
+        _noteADSR[STAGE_RELEASE] = release;
+
+        _filterCutoff = 0.99;
+        _filterResonance = 0.0;
+        _filterADSR[STAGE_ATTACK]  = 0.4;
+        _filterADSR[STAGE_DECAY]   = 0.4;
+        _filterADSR[STAGE_SUSTAIN] = 0.01;
+        _filterADSR[STAGE_RELEASE] = 0.01;
     }
 
     void noteOn (const int note, const double velocity)
@@ -301,8 +433,8 @@ public:
         } else {
             /* otherwise just create it */
             double freq = 440.0 * pow(2.0, (note - 69.0) / 12.0);
-            _notes.insert({note,
-                    PolyNote(freq, velocity, _attack, _decay, _sustain, _release)});
+            _notes.insert({note, PolyNote(freq, velocity, _noteADSR,
+                        _filterCutoff, _filterResonance, _filterADSR)});
         }
     }
 
@@ -331,17 +463,32 @@ public:
 
     void setADSR (EnvelopeStage stage, double value)
     {
-        switch (stage) {
-            case STAGE_ATTACK: _attack = value; break;
-            case STAGE_DECAY: _decay = value; break;
-            case STAGE_SUSTAIN: _sustain = value; break;
-            case STAGE_RELEASE: _release = value; break;
-            default:
-                break;
-        }
+        _noteADSR[stage] = value;
         for (auto it = _notes.begin(); it != _notes.end(); it++)
             it->second.setADSR(stage, value);
     }
+
+    void setFilterADSR (EnvelopeStage stage, double value)
+    {
+        _filterADSR[stage] = value;
+        for (auto it = _notes.begin(); it != _notes.end(); it++)
+            it->second.setFilterADSR(stage, value);
+    }
+
+    void setFilterCutoff (double value)
+    {
+        _filterCutoff = value;
+        for (auto it = _notes.begin(); it != _notes.end(); it++)
+            it->second.setFilterCutoff(value);
+    }
+
+    void setFilterResonance (double value)
+    {
+        _filterResonance = value;
+        for (auto it = _notes.begin(); it != _notes.end(); it++)
+            it->second.setFilterResonance(value);
+    }
+
 
     double next ()
     {
@@ -361,10 +508,10 @@ public:
     }
 
 private:
-    double _attack;
-    double _decay;
-    double _sustain;
-    double _release;
+    double _noteADSR[4];
+    double _filterADSR[4];
+    double _filterResonance;
+    double _filterCutoff;
     std::unordered_map<int, PolyNote> _notes;
 };
 
@@ -395,28 +542,10 @@ main (int argc, char **argv)
     size_t samples_bytes = samples_len * sizeof(double);
     double *samples = (double*) malloc(samples_bytes);
 
-    //Oscillator LFO;
-    //LFO.setMode(OSCILLATOR_MODE_TRIANGLE);
-    //LFO.useNaive(true);
-    //LFO.setFreq(40.0);
-    //double LFOFilter = 0.1;
-
     Oscillator::setRate(rate);
     Envelope::setRate(rate);
     MidiController midi(midiDevice);
     Polyphonic polyphonic(attack, decay, sustain, release);
-
-    //Oscillator modulator;
-    //Oscillator carrier;
-    //modulator.setFreq();
-    //carrier.setFreq();
-
-    //const double freqRadians = TWOPI / rate;
-    //double carFreq = 40.0;
-    //double carIncr = freqRadians * carFreq;
-    //double modIncr = carIncr * (harmonic / subharmonic);
-    //double modPhase = 0.0;
-    //double carPhase = 0.0;
 
     while (progRunning) {
         for (unsigned i = 0; i < samples_len; ++i) {
@@ -432,12 +561,16 @@ main (int argc, char **argv)
                     polyphonic.setPitch(e.pitch);
                     break;
                 case MIDI_CONTROL:
-                    switch (e.note) {
-                        case 1: polyphonic.setADSR(STAGE_ATTACK, e.control); break;
-                        case 2: polyphonic.setADSR(STAGE_DECAY, e.control); break;
-                        case 3: polyphonic.setADSR(STAGE_SUSTAIN, e.control); break;
-                        case 4: polyphonic.setADSR(STAGE_RELEASE, e.control); break;
-                    }
+                    if (e.note <= 4)
+                        /* minus 1 because control params start at 1 */
+                        polyphonic.setADSR((EnvelopeStage)(e.note - 1), e.control);
+                    else if (e.note == 5)
+                        polyphonic.setFilterCutoff(e.control);
+                    else if (e.note == 6)
+                        polyphonic.setFilterResonance(e.control);
+                    //else if (e.note <= 8)
+                    //    /* minus 5 because stages are 1 through 4 */
+                    //    polyphonic.setFilterADSR((EnvelopeStage)(e.note - 5), e.control);
                     break;
                 default:
                     break;
@@ -445,32 +578,6 @@ main (int argc, char **argv)
             samples[i] = clip(polyphonic.next());
         }
         audio.play(samples, samples_len);
-
-        //for (unsigned i = 0; i < samples_len; ++i) {
-        //    MidiEvent e = midi.nextEvent();
-        //    switch (e.type) {
-        //        case MIDI_NOTEON:
-        //            env.noteOn();
-        //            break;
-        //        case MIDI_NOTEOFF:
-        //            env.noteOff();
-        //            break;
-        //        default:
-        //            break;
-        //    }
-        //    if (!env.isActive()) {
-        //        samples[i] = 0.0;
-        //        continue;
-        //    }
-        //    samples[i] = clip(sin(carPhase) * env.next());
-        //    carPhase += carIncr + (modAmplitude * sin(modPhase));
-        //    if (carPhase > TWOPI)
-        //        carPhase -= TWOPI;
-        //    modPhase += modIncr;
-        //    if (modPhase > TWOPI)
-        //        modPhase -= TWOPI;
-        //}
-        //audio.play(samples, samples_len);
     }
 
     free(samples);
