@@ -15,7 +15,7 @@ static const size_t format_width = snd_pcm_format_physical_width(format);
 /* stream rate */
 static const unsigned int rate = 44100;
 /* count of channels */
-static const unsigned int channels = 1;
+static const unsigned int channels = 2;
 
 void
 chk_err (int err, const char* format, ...)
@@ -136,7 +136,7 @@ AudioDevice::AudioDevice ()
     this->num_samples = this->samples_bytes / sizeof(int16_t);
     this->samples = (int16_t*) malloc(this->samples_bytes);
 
-    assert(this->period_size == this->num_samples);
+    //assert(this->period_size == this->num_samples);
 
     printf("Period Size: %ld\n", this->period_size);
     printf("Buffer Size: %ld\n", this->buffer_size);
@@ -155,6 +155,12 @@ int16_t*
 AudioDevice::getSamplesBuffer ()
 {
     return this->samples;
+}
+
+size_t
+AudioDevice::getPeriodSamples ()
+{
+    return this->num_samples;
 }
 
 size_t
@@ -194,23 +200,6 @@ static int xrun_recovery (snd_pcm_t *handle, int err)
         return 0;
     }
     return err;
-}
-
-/* 
- * Given a buffer of length divisible by the period size, convert each period
- * size of the buffer into correct bit format, place it in the samples buffer
- * and then play.
- */
-void
-AudioDevice::play (double *buffer, size_t length)
-{
-    assert(length % this->period_size == 0);
-    for (size_t index = 0; index < length; index += period_size) {
-        for (size_t i = 0; i < this->num_samples; i++) {
-            this->samples[i] = buffer[index + i];
-        }
-        this->playSamples();
-    }
 }
 
 void

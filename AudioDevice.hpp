@@ -2,6 +2,7 @@
 #define AUDIO_DEVICE_HPP
 
 #include <inttypes.h>
+#include <cassert>
 
 class AudioDevice {
 public:
@@ -18,14 +19,26 @@ public:
     unsigned int getRate ();
 
     /* 
-     * Given a buffer of length divisible by the period size, convert each period
-     * size of the buffer into correct bit format, place it in the samples buffer
-     * and then play.
+     * Given a buffer of length divisible by the period size, convert each
+     * period size of the buffer into correct bit format, place it in the
+     * samples buffer and then play.
      */
-    void play (double *buffer, size_t length);
+    template <typename T>
+    void play (T *buffer, size_t length)
+    {
+        assert(length % this->period_size == 0);
+        for (size_t index = 0; index < length; index += period_size) {
+            for (size_t i = 0; i < this->num_samples; i++) {
+                this->samples[i] = buffer[index + i];
+            }
+            this->playSamples();
+        }
+    }
 
     /* Return the internal samples buffer */
     int16_t* getSamplesBuffer ();
+    /* Return the number of samples expected per period */
+    size_t getPeriodSamples ();
     /* Return the length of the internal samples buffer in bytes */
     size_t getSamplesBytes ();
     /* attempt to play the samples in the samples buffer */

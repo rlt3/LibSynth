@@ -8,7 +8,7 @@
 
 static bool progRunning = true;
 
-static inline int16_t
+static inline double
 clip (double x)
 {
     if (x > 1.0)
@@ -493,7 +493,6 @@ public:
             it->second.setFilterResonance(value);
     }
 
-
     double next ()
     {
         double out = 0.0;
@@ -519,30 +518,27 @@ private:
     std::unordered_map<int, PolyNote> _notes;
 };
 
+
 int
 main (int argc, char **argv)
 {
     signal(SIGINT, sigint);
 
-    if (argc < 9) {
-        fprintf(stderr, "./synth <MidiDevice> <FM> <harmonic> <subharmonic> <a> <d> <s> <r>\n");
+    if (argc < 6) {
+        fprintf(stderr, "./synth <MidiDevice> <a> <d> <s> <r>\n");
         exit(1);
     }
 
     const char *midiDevice = argv[1];
-    //double modAmplitude = atof(argv[2]);
-    //double harmonic = atof(argv[3]);
-    //double subharmonic = atof(argv[4]);
-    double attack = atof(argv[5]);
-    double decay = atof(argv[6]);
-    double sustain = atof(argv[7]);
-    double release = atof(argv[8]);
+    double attack = atof(argv[2]);
+    double decay = atof(argv[3]);
+    double sustain = atof(argv[4]);
+    double release = atof(argv[5]);
 
     AudioDevice audio;
 
     size_t rate = audio.getRate();
-    size_t period_size = audio.getPeriodSize();
-    size_t samples_len = period_size;
+    size_t samples_len = audio.getPeriodSamples();
     size_t samples_bytes = samples_len * sizeof(double);
     double *samples = (double*) malloc(samples_bytes);
 
@@ -552,7 +548,7 @@ main (int argc, char **argv)
     Polyphonic polyphonic(attack, decay, sustain, release);
 
     while (progRunning) {
-        for (unsigned i = 0; i < samples_len; ++i) {
+        for (unsigned i = 0; i < samples_len; i += 2) {
             MidiEvent e = midi.nextEvent();
             switch (e.type) {
                 case MIDI_NOTEON:
@@ -579,7 +575,7 @@ main (int argc, char **argv)
                 default:
                     break;
             }
-            samples[i] = clip(polyphonic.next());
+            samples[i] = samples[i + 1] = clip(polyphonic.next());
         }
         audio.play(samples, samples_len);
     }
