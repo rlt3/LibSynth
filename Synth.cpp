@@ -518,66 +518,152 @@ private:
     std::unordered_map<int, PolyNote> _notes;
 };
 
+#include "Knob.hpp"
+
+class Synth {
+public:
+    Synth ()
+    {
+        init(NULL);
+    }
+
+    Synth (const char *midiDevice)
+    {
+        init(midiDevice);
+    }
+
+    Synth (std::string midiDevice)
+    {
+        init(midiDevice.c_str());
+    }
+
+    ~Synth ()
+    {
+        _running = false;
+        pthread_join(_thread, NULL);
+        delete _audio;
+        delete _midi;
+        delete _polyphonic;
+        delete[] _samples;
+    }
+
+    MidiController*
+    getMidiController () const
+    {
+        return _midi;
+    }
+
+protected:
+    void init (const char *midiDevice)
+    {
+        _audio = new AudioDevice();
+
+        size_t rate = _audio->getRate();
+        _samplesLen = _audio->getPeriodSamples();
+        _samples = new int16_t[_samplesLen];
+
+        Oscillator::setRate(rate);
+        Envelope::setRate(rate);
+        _midi = new MidiController(midiDevice);
+        _polyphonic = new Polyphonic(0.01, 0.5, 0.5, 1.0);
+
+        _running = true;
+        CHK(pthread_create(&_thread, NULL, Synth::audio_thread, this),
+                "Could not create audio thread");
+    }
+
+    static void* audio_thread (void *data)
+    {
+        Synth *synth = (Synth*) data;
+        Polyphonic *polyphonic = synth->_polyphonic;
+        MidiController *midi = synth->_midi;
+        AudioDevice *audio = synth->_audio;
+        int16_t *samples = synth->_samples;
+        size_t samplesLen = synth->_samplesLen;
+
+        while (synth->_running) {
+            for (unsigned i = 0; i < samplesLen; i += 2) {
+                MidiEvent e = midi->nextEvent();
+                switch (e.type) {
+                    case MIDI_NOTEON:
+                        polyphonic->noteOn(e.note, e.velocity);
+                        break;
+                    case MIDI_NOTEOFF:
+                        polyphonic->noteOff(e.note);
+                        break;
+                    case MIDI_PITCHBEND:
+                        polyphonic->setPitch(e.pitch);
+                        break;
+                    case MIDI_CONTROL:
+                        if (e.note <= 4)
+                            /* minus 1 because control params start at 1 */
+                            polyphonic->setADSR((EnvelopeStage)(e.note - 1), e.control);
+                        else if (e.note == 5)
+                            polyphonic->setFilterCutoff(e.control);
+                        else if (e.note == 6)
+                            polyphonic->setFilterResonance(e.control);
+                        else if (e.note <= 10)
+                            /* minus 6 because stages are 1 through 4 */
+                            polyphonic->setFilterADSR((EnvelopeStage)(e.note - 6), e.control);
+                        break;
+                    default:
+                        break;
+                }
+                samples[i] = samples[i + 1] = clip(polyphonic->next());
+            }
+            audio->play(samples, samplesLen);
+        }
+
+        return NULL;
+    }
+
+private:
+    AudioDevice    *_audio;
+    MidiController *_midi;
+    Polyphonic     *_polyphonic;
+    int16_t        *_samples;
+    size_t          _samplesLen;
+
+    bool _running;
+    pthread_t _thread;
+
+    std::vector<SynthValue*> knobs;
+};
+
+#include <unistd.h>
+
 int
 main (int argc, char **argv)
 {
     signal(SIGINT, sigint);
 
-    if (argc < 6) {
-        fprintf(stderr, "./synth <MidiDevice> <a> <d> <s> <r>\n");
-        exit(1);
-    }
+    char *midiDevice = NULL;
 
-    const char *midiDevice = argv[1];
-    double attack = atof(argv[2]);
-    double decay = atof(argv[3]);
-    double sustain = atof(argv[4]);
-    double release = atof(argv[5]);
+    if (argc >= 2)
+        midiDevice = argv[1];
 
-    AudioDevice audio;
+    Synth synth(midiDevice);
+    MidiController *midi = synth.getMidiController();
 
-    size_t rate = audio.getRate();
-    size_t samples_len = audio.getPeriodSamples();
-    int16_t *samples = new int16_t[samples_len];
+    /* how hard the note is played (how loud it will be) */
+    const double velocity = 1.0;
+    /* any pitch modulation change, increasing frequency of note */
+    const double pitch = 0.0;
+    /* control value, used for changing control values like attack, resonance */
+    const double control = 0.0;
+    /* a low note */
+    const int note = 32;
 
-    Oscillator::setRate(rate);
-    Envelope::setRate(rate);
-    MidiController midi(midiDevice);
-    Polyphonic polyphonic(attack, decay, sustain, release);
-
+    bool noteon = true;
     while (progRunning) {
-        for (unsigned i = 0; i < samples_len; i += 2) {
-            MidiEvent e = midi.nextEvent();
-            switch (e.type) {
-                case MIDI_NOTEON:
-                    polyphonic.noteOn(e.note, e.velocity);
-                    break;
-                case MIDI_NOTEOFF:
-                    polyphonic.noteOff(e.note);
-                    break;
-                case MIDI_PITCHBEND:
-                    polyphonic.setPitch(e.pitch);
-                    break;
-                case MIDI_CONTROL:
-                    if (e.note <= 4)
-                        /* minus 1 because control params start at 1 */
-                        polyphonic.setADSR((EnvelopeStage)(e.note - 1), e.control);
-                    else if (e.note == 5)
-                        polyphonic.setFilterCutoff(e.control);
-                    else if (e.note == 6)
-                        polyphonic.setFilterResonance(e.control);
-                    //else if (e.note <= 8)
-                    //    /* minus 5 because stages are 1 through 4 */
-                    //    polyphonic.setFilterADSR((EnvelopeStage)(e.note - 5), e.control);
-                    break;
-                default:
-                    break;
-            }
-            samples[i] = samples[i + 1] = clip(polyphonic.next());
-        }
-        audio.play(samples, samples_len);
+        /* play a note every second, turning it on and off every half second */
+        usleep(500000);
+        if (noteon)
+            midi->input(MidiEvent(MIDI_NOTEON, note, control, velocity, pitch));
+        else
+            midi->input(MidiEvent(MIDI_NOTEOFF, note, control, velocity, pitch));
+        noteon = !noteon;
     }
 
-    delete[] samples;
     return 0;
 }
