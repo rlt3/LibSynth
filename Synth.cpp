@@ -8,14 +8,14 @@
 
 static bool progRunning = true;
 
-static inline double
+static inline int16_t
 clip (double x)
 {
     if (x > 1.0)
         x = 1.0;
     else if (x < -1.0)
         x = -1.0;
-    return 32767.0 * x;
+    return static_cast<int16_t>(32767.0 * x);
 }
 
 /*
@@ -518,7 +518,6 @@ private:
     std::unordered_map<int, PolyNote> _notes;
 };
 
-
 int
 main (int argc, char **argv)
 {
@@ -539,8 +538,7 @@ main (int argc, char **argv)
 
     size_t rate = audio.getRate();
     size_t samples_len = audio.getPeriodSamples();
-    size_t samples_bytes = samples_len * sizeof(double);
-    double *samples = (double*) malloc(samples_bytes);
+    int16_t *samples = new int16_t[samples_len];
 
     Oscillator::setRate(rate);
     Envelope::setRate(rate);
@@ -580,6 +578,6 @@ main (int argc, char **argv)
         audio.play(samples, samples_len);
     }
 
-    free(samples);
+    delete[] samples;
     return 0;
 }

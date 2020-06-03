@@ -203,6 +203,18 @@ static int xrun_recovery (snd_pcm_t *handle, int err)
 }
 
 void
+AudioDevice::play (int16_t *buffer, size_t length)
+{
+    assert(length % this->num_samples == 0);
+    for (size_t index = 0; index < length; index += num_samples) {
+        for (size_t i = 0; i < this->num_samples; i++) {
+            this->samples[i] = buffer[index + i];
+        }
+        this->playSamples();
+    }
+}
+
+void
 AudioDevice::playSamples ()
 {
     assert(this->device_handle);

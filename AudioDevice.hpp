@@ -19,21 +19,11 @@ public:
     unsigned int getRate ();
 
     /* 
-     * Given a buffer of length divisible by the period size, convert each
-     * period size of the buffer into correct bit format, place it in the
-     * samples buffer and then play.
+     * Given a buffer of length divisible by the number of samples per period,
+     * convert each period size of the buffer into correct bit format, place it
+     * in the samples buffer and then play.
      */
-    template <typename T>
-    void play (T *buffer, size_t length)
-    {
-        assert(length % this->period_size == 0);
-        for (size_t index = 0; index < length; index += period_size) {
-            for (size_t i = 0; i < this->num_samples; i++) {
-                this->samples[i] = buffer[index + i];
-            }
-            this->playSamples();
-        }
-    }
+    void play (int16_t *buffer, size_t length);
 
     /* Return the internal samples buffer */
     int16_t* getSamplesBuffer ();
