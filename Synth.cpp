@@ -547,10 +547,14 @@ public:
         delete[] _samples;
     }
 
-    MidiController*
-    getMidiController () const
+    void noteOn (int note, double velocity) const
     {
-        return _midi;
+        _midi->input(MidiEvent(MIDI_NOTEON, note, 0.0, velocity, 0.0));
+    }
+
+    void noteOff (int note) const
+    {
+        _midi->input(MidiEvent(MIDI_NOTEOFF, note, 0.0, 0.0, 0.0));
     }
 
 protected:
@@ -643,26 +647,21 @@ main (int argc, char **argv)
         midiDevice = argv[1];
 
     Synth synth(midiDevice);
-    MidiController *midi = synth.getMidiController();
 
-    /* how hard the note is played (how loud it will be) */
+    /* how hard the note is played (how loud it will be) in range [0.0, 1.0] */
     const double velocity = 1.0;
-    /* any pitch modulation change, increasing frequency of note */
-    const double pitch = 0.0;
-    /* control value, used for changing control values like attack, resonance */
-    const double control = 0.0;
     /* a low note */
     const int note = 32;
 
     bool noteon = true;
     while (progRunning) {
         /* play a note every second, turning it on and off every half second */
-        usleep(500000);
         if (noteon)
-            midi->input(MidiEvent(MIDI_NOTEON, note, control, velocity, pitch));
+            synth.noteOn(note, velocity);
         else
-            midi->input(MidiEvent(MIDI_NOTEOFF, note, control, velocity, pitch));
+            synth.noteOff(note);
         noteon = !noteon;
+        usleep(500000);
     }
 
     return 0;

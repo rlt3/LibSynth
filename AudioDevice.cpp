@@ -1,4 +1,5 @@
 #include <alsa/asoundlib.h>
+#include "Definitions.hpp"
 #include "AudioDevice.hpp"
 
 /*
@@ -136,12 +137,12 @@ AudioDevice::AudioDevice ()
     this->num_samples = this->samples_bytes / sizeof(int16_t);
     this->samples = (int16_t*) malloc(this->samples_bytes);
 
-    //assert(this->period_size == this->num_samples);
-
-    printf("Period Size: %ld\n", this->period_size);
-    printf("Buffer Size: %ld\n", this->buffer_size);
-    printf("Num Channels: %u\n", channels);
-    printf("Num Samples: %lu\n", this->num_samples);
+    if (DEBUG) {
+        printf("Period Size: %ld\n", this->period_size);
+        printf("Buffer Size: %ld\n", this->buffer_size);
+        printf("Num Channels: %u\n", channels);
+        printf("Num Samples: %lu\n", this->num_samples);
+    }
 }
 
 AudioDevice::~AudioDevice ()
