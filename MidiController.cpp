@@ -151,7 +151,7 @@ MidiController::MidiController (const char *midiDevice)
             client = snd_seq_client_info_get_client(cinfo);
         }
         if (client < 0) {
-            fprintf(stderr, "Could not find midi device %s\n", midiDevice);
+            fprintf(stderr, "Could not find midi device `%s'\n", midiDevice);
             exit(1);
         }
         /* try to connect to client on port 0. TODO: accept port as argument */
