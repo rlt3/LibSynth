@@ -6,11 +6,11 @@
  * http://www.martin-finke.de/blog/articles/audio-plugins-018-polyblep-oscillator/
  */
 
-enum OscillatorMode {
-    OSCILLATOR_MODE_SINE,
-    OSCILLATOR_MODE_SAW,
-    OSCILLATOR_MODE_SQUARE,
-    OSCILLATOR_MODE_TRIANGLE,
+enum OscillatorWave {
+    OSCILLATOR_WAVE_SINE,
+    OSCILLATOR_WAVE_SAW,
+    OSCILLATOR_WAVE_SQUARE,
+    OSCILLATOR_WAVE_TRIANGLE,
 };
 
 class Oscillator {
@@ -23,7 +23,7 @@ public:
     /* get the next sample from the oscillator */
     double next ();
 
-    void setMode  (enum OscillatorMode);
+    void setMode  (enum OscillatorWave);
     void setFreq  (double);
     void setPitch (double);
     void mute ();
@@ -46,7 +46,7 @@ protected:
     double naiveWave ();
 
 private:
-    enum OscillatorMode _mode;
+    enum OscillatorWave _mode;
 
     /* frequency */
     double _freq;

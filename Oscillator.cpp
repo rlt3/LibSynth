@@ -5,7 +5,7 @@
 unsigned long Oscillator::rate = 44100.0;
 
 Oscillator::Oscillator ()
-    : _mode (OSCILLATOR_MODE_SAW)
+    : _mode (OSCILLATOR_WAVE_SQUARE)
     , _freq (440.0)
     , _pitch (0.0)
     , _phase (0.0)
@@ -18,7 +18,7 @@ Oscillator::Oscillator ()
 }
 
 void
-Oscillator::setMode (enum OscillatorMode mode)
+Oscillator::setMode (enum OscillatorWave mode)
 {
     _mode = mode;
 }
@@ -107,10 +107,10 @@ Oscillator::next ()
         goto increment;
     }
     
-    if (_mode == OSCILLATOR_MODE_SINE) {
+    if (_mode == OSCILLATOR_WAVE_SINE) {
         value = naiveWave();
     }
-    else if (_mode == OSCILLATOR_MODE_SAW) {
+    else if (_mode == OSCILLATOR_WAVE_SAW) {
         value = naiveWave();
         value -= polyBlep(t);
     }
@@ -118,7 +118,7 @@ Oscillator::next ()
         value = naiveWave();
         value += polyBlep(t);
         value -= polyBlep(fmod(t + 0.5, 1.0));
-        if (_mode == OSCILLATOR_MODE_TRIANGLE) {
+        if (_mode == OSCILLATOR_WAVE_TRIANGLE) {
             // Leaky integrator: y[n] = A * x[n] + (1 - A) * y[n-1]
             value = _phaseIncrement * value + (1 - _phaseIncrement) * _lastOut;
             _lastOut = value;
@@ -137,15 +137,15 @@ Oscillator::naiveWave ()
 {
     double value = 0.0;
     switch (_mode) {
-        case OSCILLATOR_MODE_SINE:
+        case OSCILLATOR_WAVE_SINE:
             value = sin(_phase);
             break;
 
-        case OSCILLATOR_MODE_SAW:
+        case OSCILLATOR_WAVE_SAW:
             value = (2.0 * _phase / TWOPI) - 1.0;
             break;
 
-        case OSCILLATOR_MODE_SQUARE:
+        case OSCILLATOR_WAVE_SQUARE:
             if (_phase < PI) {
                 value = 1.0;
             } else {
@@ -153,7 +153,7 @@ Oscillator::naiveWave ()
             }
             break;
 
-        case OSCILLATOR_MODE_TRIANGLE:
+        case OSCILLATOR_WAVE_TRIANGLE:
             value = -1.0 + (2.0 * _phase / TWOPI);
             value = 2.0 * (fabs(value) - 0.5);
             break;
