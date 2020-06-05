@@ -3,7 +3,7 @@
 #include <cstring>
 #include <csignal>
 #include <unistd.h>
-#include "Synth.hpp"
+#include <Synth/Synth.hpp>
 
 static bool progRunning = true;
 
